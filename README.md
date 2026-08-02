@@ -4,9 +4,10 @@ Sistema de organização automática de documentos — monitora uma pasta, lê o
 
 ## Integrantes do Grupo
 
-- Nome do integrante 1
-- Nome do integrante 2
-- Nome do integrante 3
+- Rafael Matheus Miers Sobrinho
+- Thiago Soares
+- Wellinton Slabey
+- Gabriel Dos Santos
 
 ## Resumo da Automação Proposta
 
