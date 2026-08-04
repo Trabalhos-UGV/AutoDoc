@@ -1,0 +1,7 @@
+{
+  "pasta_entrada": "~/Documentos/AutoDoc/entrada",
+  "pasta_saida": "~/Documentos/AutoDoc/organizados",
+  "pasta_backup": null,
+  "banco": "autodoc.db",
+  "extensoes": [".pdf", ".png", ".jpg", ".jpeg", ".txt"]
+}
