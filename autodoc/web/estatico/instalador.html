@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instalador do AutoDoc</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/instalador.css">
+</head>
+<body>
+
+<!-- Só aparece em modo demonstração; ver o comentário em css/base.css. -->
+<nav class="ad-abas" aria-label="Telas do protótipo">
+  <a class="ad-abas__item" href="../../../site/index.html">Download</a>
+  <a class="ad-abas__item" href="instalador.html" aria-current="page">Instalação</a>
+  <a class="ad-abas__item" href="app.html">Gerenciamento</a>
+</nav>
+
+<main class="palco">
+  <section class="janela">
+
+    <header class="janela__barra">
+      <span class="janela__ponto" aria-hidden="true"></span>
+      <span class="janela__ponto" aria-hidden="true"></span>
+      <span class="janela__ponto" aria-hidden="true"></span>
+      <h1 class="janela__titulo ad-mono" data-titulo-janela>Instalador AutoDoc</h1>
+    </header>
+
+    <div class="janela__corpo">
+
+      <div class="cabecalho">
+        <div class="cabecalho__texto">
+          <p class="ad-rotulo ad-rotulo--acento" data-fase>Instalando · não feche esta janela</p>
+          <h2 class="cabecalho__titulo" data-etapa-atual>Verificando ambiente</h2>
+        </div>
+        <p class="cabecalho__percentual ad-mono" data-percentual>0%</p>
+      </div>
+
+      <div class="barra" role="progressbar" aria-label="Progresso da instalação"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-barra>
+        <span class="barra__preenchimento" data-barra-preenchimento></span>
+      </div>
+
+      <ol class="etapas ad-grade" data-etapas></ol>
+
+      <div class="log ad-console" data-log role="log" aria-live="polite"
+           aria-label="Registro da instalação"></div>
+
+      <footer class="rodape">
+        <p class="rodape__nota ad-mono">
+          <span data-nota>Etapa 1 de 6</span>
+          <button class="rodape__alterar" data-alterar hidden>Alterar pasta</button>
+        </p>
+        <div class="rodape__acoes">
+          <button class="ad-botao ad-botao--secundario" data-reiniciar>Reiniciar</button>
+          <button class="ad-botao ad-botao--primario" data-concluir disabled>Aguarde…</button>
+        </div>
+      </footer>
+
+    </div>
+  </section>
+</main>
+
+<script type="module" src="js/instalador.js"></script>
+</body>
+</html>

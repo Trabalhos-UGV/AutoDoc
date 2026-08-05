@@ -1,0 +1,254 @@
+/* Tela de instalação — frames 02 a 05 do protótipo.
+
+   Lá eram quatro capturas de estados diferentes (0, 35, 70 e 100%). Aqui é uma
+   página só, que percorre os quatro. As transições que o gerador dos frames
+   removia de propósito, para a captura sair sempre igual, voltam aqui. */
+
+.palco {
+  /* Um tom acima do fundo, para a janela do instalador destacar. */
+  background: #16140f;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 110px 32px 48px;
+}
+
+.janela {
+  width: 100%;
+  max-width: 880px;
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--ad-fundo);
+  box-shadow: var(--ad-sombra);
+}
+
+/* ------------------------------------------------- barra de título */
+
+.janela__barra {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 16px;
+  background: var(--ad-barra);
+  border-bottom: 1px solid #2c2922;
+}
+
+.janela__ponto {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #777165;
+  flex: none;
+}
+.janela__ponto:nth-of-type(2) { background: #5a5549; }
+.janela__ponto:nth-of-type(3) { background: #474236; }
+
+.janela__titulo {
+  flex: 1;
+  margin: 0;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ad-fraco);
+  letter-spacing: 0.05em;
+}
+
+/* ------------------------------------------------------------ corpo */
+
+.janela__corpo {
+  padding: 44px clamp(20px, 5vw, 48px) 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.cabecalho {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.cabecalho__texto { min-width: 0; }
+.cabecalho__texto > p { margin: 0 0 10px; }
+
+.cabecalho__titulo {
+  margin: 0;
+  font-size: clamp(24px, 3.4vw, 34px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.cabecalho__percentual {
+  margin: 0;
+  font-size: clamp(34px, 4.6vw, 46px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ad-tinta-forte);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------- barra de progresso */
+
+.barra {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ad-borda);
+  overflow: hidden;
+}
+
+.barra__preenchimento {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--ad-acento);
+  transition: width 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ----------------------------------------------------------- etapas */
+
+.etapas {
+  grid-template-columns: 1fr 1fr;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-color: var(--ad-borda);
+  background: var(--ad-borda);
+}
+
+.etapas > li {
+  background: var(--ad-painel);
+  padding: 15px 18px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.etapa__marca {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--ad-mono);
+  font-size: 12px;
+  border: 1px solid var(--ad-borda-viva);
+  color: transparent;
+  transition: background 260ms ease, color 260ms ease, border-color 260ms ease;
+}
+
+/* Etapa em andamento: acento + o pulso que os frames não podiam ter. */
+.etapa[data-estado='agora'] .etapa__marca {
+  background: var(--ad-acento);
+  border-color: var(--ad-acento);
+  color: var(--ad-fundo);
+  animation: ad-pulso 2s ease-in-out infinite;
+}
+
+.etapa[data-estado='pronto'] .etapa__marca {
+  background: var(--ad-verde);
+  border-color: var(--ad-verde);
+  color: var(--ad-fundo);
+}
+
+.etapa__texto { flex: 1; min-width: 0; }
+
+/* Blocos, nao inline: senao o detalhe curto sobe para a linha do titulo e as
+   seis celulas ficam com alinhamentos diferentes entre si. */
+.etapa__titulo,
+.etapa__detalhe { display: block; }
+
+.etapa__titulo {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ad-fantasma);
+  transition: color 260ms ease;
+}
+.etapa:not([data-estado='espera']) .etapa__titulo { color: var(--ad-tinta-forte); }
+
+.etapa__detalhe {
+  font-family: var(--ad-mono);
+  font-size: 11px;
+  color: var(--ad-fantasma);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------- log */
+
+.log {
+  height: 150px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ad-apagado);
+}
+
+.log__linha { display: flex; gap: 12px; }
+.log__hora { color: var(--ad-fantasma); flex: none; }
+.log__mensagem { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Linha nova entra deslizando de baixo, como um terminal de verdade. */
+@keyframes log-entrada {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.log__linha { animation: log-entrada 220ms ease-out; }
+
+/* ----------------------------------------------------------- rodapé */
+
+.rodape {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--ad-borda);
+  padding-top: 24px;
+}
+
+.rodape__nota {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ad-fraco);
+}
+
+.rodape__alterar {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--ad-mono);
+  font-size: 12px;
+  color: var(--ad-acento);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.rodape__alterar:hover { color: var(--ad-acento-claro); }
+
+.rodape__acoes { display: flex; gap: 10px; }
+
+@media (max-width: 620px) {
+  .palco { padding: 88px 16px 32px; }
+  .etapas { grid-template-columns: 1fr; }
+  .rodape__acoes { width: 100%; }
+  .rodape__acoes .ad-botao { flex: 1; }
+}

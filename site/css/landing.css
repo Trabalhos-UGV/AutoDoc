@@ -1,0 +1,218 @@
+/* Landing do AutoDoc.
+
+   O frame original (01-download.html) era travado em 1440 px, porque foi feito
+   para virar quadro no Figma. Aqui a mesma composicao vira grade fluida: duas
+   colunas no desktop, uma so abaixo de 900 px. */
+
+.pagina {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  min-height: 100vh;
+}
+
+.apresentacao {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 34px;
+  padding: 120px clamp(24px, 5vw, 72px) 56px;
+}
+
+.explicacao {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  padding: 120px clamp(24px, 4vw, 56px) 56px;
+  background: var(--ad-cartao);
+  border-left: 1px solid var(--ad-borda);
+}
+
+/* ------------------------------------------------------------- marca */
+
+.marca { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.marca__sigla {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--ad-acento);
+  color: var(--ad-fundo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.marca__nome { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+
+.marca__versao {
+  font-size: 11px;
+  color: var(--ad-fraco);
+  border: 1px solid #36322c;
+  padding: 3px 7px;
+  border-radius: 5px;
+}
+
+/* ------------------------------------------------------------ titulo */
+
+.titulo {
+  margin: 0;
+  /* Acompanha a largura da janela em vez dos 60px fixos do frame. */
+  font-size: clamp(38px, 4.4vw, 60px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  text-wrap: pretty;
+  max-width: 12em;
+}
+
+.resumo {
+  margin: 0;
+  font-size: clamp(16px, 1.3vw, 18px);
+  line-height: 1.55;
+  color: var(--ad-apagado);
+  max-width: 34em;
+  text-wrap: pretty;
+}
+
+/* ---------------------------------------------------------- download */
+
+.download {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 560px;
+}
+
+.download__botoes { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* O botao do sistema de quem visita cresce; os outros dois ficam discretos.
+   Quem decide qual e qual e o landing.js. */
+.download__botoes .ad-botao--primario { padding: 16px 26px; font-size: 16px; }
+.download__botoes .ad-botao--secundario { padding: 16px 20px; font-size: 15px; }
+
+.download__meta {
+  margin: 0;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ad-fantasma);
+}
+
+.download__nota,
+.aviso {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ad-apagado);
+  max-width: 46em;
+}
+
+.aviso {
+  border-left: 2px solid var(--ad-acento);
+  padding-left: 12px;
+  color: var(--ad-texto);
+}
+.aviso code {
+  font-family: var(--ad-mono);
+  font-size: 12px;
+  color: var(--ad-acento);
+}
+
+/* -------------------------------------------------------- requisitos */
+
+.requisitos {
+  grid-template-columns: repeat(3, 1fr);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 560px;
+}
+
+.requisitos > li {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 20px;
+}
+
+.requisitos__valor { font-size: 15px; font-weight: 500; }
+.requisitos__valor em { color: var(--ad-apagado); font-style: normal; }
+
+/* ---------------------------------------------------------- creditos */
+
+.creditos {
+  border-top: 1px solid var(--ad-borda);
+  padding-top: 22px;
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.creditos__lista {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  color: var(--ad-texto);
+}
+
+/* ----------------------------------------------------- como funciona */
+
+.etapas { list-style: none; margin: 0; padding: 0; }
+
+.etapas__item {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--ad-borda);
+}
+.etapas__item:last-child { border-bottom: none; }
+
+.etapas__numero { font-size: 12px; color: var(--ad-acento); }
+
+.etapas__titulo { margin: 0 0 5px; font-size: 16px; font-weight: 600; }
+
+.etapas__texto {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ad-apagado);
+}
+
+.etapas__texto code,
+.explicacao code { font-family: var(--ad-mono); font-size: 13px; }
+
+.explicacao .ad-console { margin-top: 14px; }
+
+/* ------------------------------------------------------- responsivo */
+
+@media (max-width: 900px) {
+  .pagina { grid-template-columns: 1fr; }
+
+  .apresentacao { padding-top: 96px; }
+
+  .explicacao {
+    border-left: none;
+    border-top: 1px solid var(--ad-borda);
+    padding-top: 48px;
+  }
+}
+
+@media (max-width: 560px) {
+  .requisitos { grid-template-columns: 1fr; }
+
+  /* Empilhado, cada botao ocupa a linha inteira — alvo de toque decente. */
+  .download__botoes { flex-direction: column; align-items: stretch; }
+
+  .creditos { flex-direction: column; gap: 12px; }
+  .creditos__lista { flex-direction: column; gap: 6px; }
+}
