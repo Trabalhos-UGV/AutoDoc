@@ -54,6 +54,11 @@
 
 * { box-sizing: border-box; }
 
+/* O atributo hidden vale display:none na folha do navegador, que perde para
+   qualquer regra nossa de display. Sem isto, esconder um elemento que tenha
+   display:flex simplesmente nao funciona. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--ad-fundo);

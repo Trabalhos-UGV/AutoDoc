@@ -1,0 +1,489 @@
+/* Tela de gerenciamento — frames 06 a 17 do protótipo.
+
+   Os doze frames eram estados da mesma tela: seis linhas selecionadas, cinco
+   filtros de categoria e uma busca preenchida. Aqui é uma página só.
+
+   O protótipo resolvia a largura com min-width:1320px e rolagem horizontal, o
+   que num app de verdade é desconfortável. Aqui as três colunas se reorganizam:
+   o detalhe desce abaixo da tabela, depois a lateral vira uma faixa no topo, e
+   por último a tabela deixa de ser tabela e vira lista de cartões. */
+
+.painel {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr) 372px;
+  grid-template-areas: 'lateral centro detalhe';
+  min-height: 100vh;
+}
+
+/* ---------------------------------------------------------- lateral */
+
+.lateral {
+  grid-area: lateral;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 84px 18px 24px;
+  background: var(--ad-painel);
+  border-right: 1px solid var(--ad-borda);
+}
+
+.lateral__marca { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
+
+.lateral__sigla {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--ad-acento);
+  color: var(--ad-fundo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.lateral__nome { font-size: 15px; font-weight: 600; }
+
+.lateral__bloco { display: flex; flex-direction: column; gap: 8px; }
+.lateral__bloco > .ad-rotulo { padding: 0 8px; }
+
+.lateral__pasta {
+  margin: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: 9px;
+  font-size: 11.5px;
+  color: var(--ad-texto);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.lateral__vigia {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--ad-verde);
+}
+
+.lateral__ponto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ad-verde);
+  flex: none;
+}
+
+/* Quando o watchdog não está rodando o ponto para de pulsar e apaga. */
+.lateral__vigia[data-ativo='nao'] { color: var(--ad-fraco); }
+.lateral__vigia[data-ativo='nao'] .lateral__ponto {
+  background: var(--ad-fraco);
+  animation: none;
+}
+
+.categorias { display: flex; flex-direction: column; gap: 3px; }
+
+.categoria {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--ad-raio-min);
+  background: transparent;
+  color: var(--ad-texto);
+  font-family: var(--ad-sans);
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.categoria:hover { background: #221f19; color: var(--ad-tinta); }
+.categoria[aria-pressed='true'] { background: #2c2922; color: var(--ad-tinta-forte); }
+
+.categoria__contagem {
+  font-family: var(--ad-mono);
+  font-size: 11.5px;
+  color: var(--ad-fraco);
+}
+
+.lateral__estado {
+  margin: auto 0 0;
+  border-top: 1px solid var(--ad-borda);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--ad-fraco);
+}
+.lateral__estado > div { display: flex; justify-content: space-between; gap: 8px; }
+.lateral__estado dt { margin: 0; }
+.lateral__estado dd { margin: 0; color: var(--ad-texto); }
+.lateral__ok { color: var(--ad-verde); }
+
+/* ----------------------------------------------------------- centro */
+
+.centro {
+  grid-area: centro;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 84px 32px 40px;
+  min-width: 0;
+}
+
+.centro__titulo {
+  margin: 0 0 6px;
+  font-size: clamp(22px, 2.4vw, 28px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.centro__resumo { margin: 0; font-size: 14px; color: var(--ad-apagado); }
+
+.busca {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 15px;
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: 11px;
+  background: #181611;
+  transition: border-color 140ms ease;
+}
+.busca:focus-within { border-color: var(--ad-acento); }
+
+.busca__lupa { color: var(--ad-fraco); font-size: 14px; }
+
+.busca__campo {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ad-tinta-forte);
+  font-size: 13px;
+}
+.busca__campo::placeholder { color: var(--ad-fantasma); }
+/* O X nativo do type=search não combina com o resto; some. */
+.busca__campo::-webkit-search-cancel-button { display: none; }
+
+.busca__dica { font-size: 11px; color: var(--ad-fantasma); flex: none; }
+
+/* -------------------------------------------------------- números */
+
+.numeros {
+  grid-template-columns: repeat(4, 1fr);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-color: #292620;
+  background: #292620;
+}
+
+.numeros > li { background: #181611; padding: 15px 17px; }
+
+.numeros__valor {
+  display: block;
+  font-size: 22px;
+  font-weight: 600;
+  font-family: var(--ad-mono);
+  margin-top: 7px;
+  font-variant-numeric: tabular-nums;
+}
+.numeros__valor--atencao { color: var(--ad-acento); }
+
+/* --------------------------------------------------------- tabela */
+
+.tabela {
+  border: 1px solid #292620;
+  border-radius: var(--ad-raio);
+  overflow: hidden;
+}
+
+/* As cinco colunas do protótipo. Uma variável para o cabeçalho e as linhas
+   nunca saírem de alinhamento quando alguma coluna some no responsivo. */
+.tabela {
+  --colunas: 1.5fr 1fr 66px 100px 1.3fr;
+}
+
+.tabela__cabecalho,
+.linha {
+  display: grid;
+  grid-template-columns: var(--colunas);
+  gap: 14px;
+  align-items: center;
+}
+
+/* Item de grade nao encolhe abaixo do proprio conteudo por padrao: sem isto,
+   um nome de arquivo comprido alarga a primeira coluna e desalinha a linha
+   inteira em relacao as outras. */
+.tabela__cabecalho > *,
+.linha > * { min-width: 0; }
+
+.tabela__cabecalho {
+  padding: 11px 17px;
+  background: var(--ad-cabecalho);
+  border-bottom: 1px solid #292620;
+  white-space: nowrap;
+}
+
+.linha {
+  padding: 13px 17px;
+  background: var(--ad-linha);
+  border-bottom: 1px solid #221f19;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  color: inherit;
+  font: inherit;
+  transition: background 120ms ease;
+}
+.linha:last-child { border-bottom: none; }
+.linha:hover { background: #1c1914; }
+
+.linha[aria-selected='true'] {
+  background: var(--ad-linha-sel);
+  box-shadow: inset 2px 0 0 var(--ad-acento);
+}
+
+.linha__arquivo {
+  display: block;
+  font-family: var(--ad-mono);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linha__origem {
+  display: block;
+  font-family: var(--ad-mono);
+  font-size: 10.5px;
+  color: var(--ad-fantasma);
+  margin-top: 3px;
+}
+
+.linha__conf {
+  font-family: var(--ad-mono);
+  font-size: 12.5px;
+  color: var(--ad-texto);
+  font-variant-numeric: tabular-nums;
+}
+.linha__conf--baixa { color: var(--ad-acento); }
+
+.linha__data {
+  font-family: var(--ad-mono);
+  font-size: 12px;
+  color: var(--ad-texto);
+  font-variant-numeric: tabular-nums;
+}
+
+.linha__destino {
+  font-family: var(--ad-mono);
+  font-size: 11.5px;
+  color: var(--ad-apagado);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linha__rotulo { display: none; }
+
+.tabela__vazio {
+  margin: 0;
+  padding: 28px 17px;
+  background: var(--ad-linha);
+  font-size: 13.5px;
+  color: var(--ad-apagado);
+  text-align: center;
+}
+
+/* -------------------------------------------------------- detalhe */
+
+.detalhe {
+  grid-area: detalhe;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 84px 26px 32px;
+  background: var(--ad-painel);
+  border-left: 1px solid var(--ad-borda);
+  min-width: 0;
+}
+
+.detalhe h2, .detalhe h3 { margin: 0 0 11px; }
+
+.detalhe__arquivo {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--ad-tinta-forte);
+}
+
+.detalhe__resumo {
+  margin: 9px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.detalhe__confianca { font-size: 11.5px; color: var(--ad-fraco); }
+
+.detalhe__regra,
+.detalhe__trecho {
+  border-color: var(--ad-borda-forte);
+  border-radius: 11px;
+  padding: 15px;
+  background: var(--ad-fundo);
+}
+
+.detalhe__texto-regra {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ad-texto);
+}
+
+.detalhe__chaves { margin: 0; display: flex; gap: 7px; flex-wrap: wrap; }
+
+.detalhe__trecho { margin-top: auto; padding: 14px; }
+
+.detalhe__texto-trecho {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ad-apagado);
+  word-break: break-word;
+}
+
+/* Linha do tempo do trajeto: bolinha + fio ligando até a próxima. */
+.trajeto { list-style: none; margin: 0; padding: 0; }
+
+.trajeto__passo {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.trajeto__eixo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.trajeto__ponto {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ad-acento);
+  margin-top: 4px;
+  flex: none;
+}
+
+.trajeto__fio { width: 1px; flex: 1; background: #36322c; }
+.trajeto__passo:last-child { padding-bottom: 0; }
+.trajeto__passo:last-child .trajeto__fio { display: none; }
+
+.trajeto__titulo { margin: 0; font-size: 13.5px; font-weight: 600; }
+
+.trajeto__detalhe {
+  margin: 4px 0 0;
+  font-family: var(--ad-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ad-apagado);
+  word-break: break-word;
+}
+
+/* ----------------------------------------------------- responsivo */
+
+/* O detalhe desce para baixo da tabela e a lateral segue à esquerda. */
+@media (max-width: 1180px) {
+  .painel {
+    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-areas: 'lateral centro' 'lateral detalhe';
+    align-content: start;
+  }
+
+  .detalhe {
+    border-left: none;
+    border-top: 1px solid var(--ad-borda);
+    padding: 32px;
+  }
+
+  .detalhe__trecho { margin-top: 0; }
+}
+
+/* A lateral vira faixa no topo, com as categorias em linha. */
+@media (max-width: 860px) {
+  .painel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'lateral' 'centro' 'detalhe';
+  }
+
+  .lateral {
+    border-right: none;
+    border-bottom: 1px solid var(--ad-borda);
+    padding: 76px 20px 20px;
+  }
+
+  .categorias { flex-direction: row; flex-wrap: wrap; }
+  .categoria { width: auto; }
+
+  .lateral__estado { margin-top: 0; }
+
+  .centro { padding: 32px 20px; }
+
+  .numeros { grid-template-columns: repeat(2, 1fr); }
+
+  /* Destino é a coluna mais dispensável — sai primeiro. */
+  .tabela { --colunas: 1.5fr 1fr 66px 92px; }
+  .tabela__cabecalho > :last-child,
+  .linha__destino { display: none; }
+}
+
+/* Abaixo disto a grade de colunas não cabe: cada documento vira um cartão. */
+@media (max-width: 640px) {
+  .tabela__cabecalho { display: none; }
+
+  .linha {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 15px 16px;
+  }
+
+  /* Sem cabeçalho, cada número precisa dizer o que é. */
+  .linha__rotulo {
+    display: inline;
+    font-family: var(--ad-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ad-fantasma);
+    margin-right: 4px;
+  }
+
+  .linha__destino {
+    display: block;
+    white-space: normal;
+    word-break: break-all;
+  }
+
+  .numeros { grid-template-columns: 1fr; }
+  .busca__dica { display: none; }
+}
