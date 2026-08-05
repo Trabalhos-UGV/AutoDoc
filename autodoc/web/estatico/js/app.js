@@ -1,0 +1,328 @@
+/* Tela de gerenciamento do AutoDoc — frames 06 a 17 do protótipo.
+
+   Os doze frames eram estados da mesma tela. Aqui o estado é um só objeto:
+   qual categoria está filtrando, o que foi digitado na busca e qual documento
+   está selecionado. Tudo o mais é consequência disso.
+
+   Em demonstração a filtragem acontece aqui, sobre os seis documentos do
+   protótipo. Em modo real quem filtra é o servidor, que tem o índice FTS5 —
+   por isso `carregar()` tem os dois caminhos. */
+
+import {
+  CATEGORIAS,
+  DOCUMENTOS,
+  ESTATISTICAS,
+  PASTA_MONITORADA,
+} from './dados-demo.js';
+import { detectarModo } from './modo.js';
+
+const ESPERA_BUSCA = 180; // ms de silêncio antes de consultar
+
+const el = {
+  pasta: document.querySelector('[data-pasta]'),
+  vigia: document.querySelector('[data-vigia]'),
+  categorias: document.querySelector('[data-categorias]'),
+  resumo: document.querySelector('[data-resumo]'),
+  busca: document.querySelector('[data-busca]'),
+  numeros: document.querySelector('[data-numeros]'),
+  linhas: document.querySelector('[data-linhas]'),
+  vazio: document.querySelector('[data-vazio]'),
+  detalhe: document.querySelector('[data-detalhe]'),
+  detArquivo: document.querySelector('[data-det-arquivo]'),
+  detEtiqueta: document.querySelector('[data-det-etiqueta]'),
+  detConfianca: document.querySelector('[data-det-confianca]'),
+  detRegra: document.querySelector('[data-det-regra]'),
+  detChaves: document.querySelector('[data-det-chaves]'),
+  detTrajeto: document.querySelector('[data-det-trajeto]'),
+  detTrecho: document.querySelector('[data-det-trecho]'),
+};
+
+const estado = {
+  documentos: DOCUMENTOS,
+  categorias: CATEGORIAS,
+  estatisticas: ESTATISTICAS,
+  pasta: PASTA_MONITORADA,
+  categoria: 'Todos',
+  busca: '',
+  selecionado: DOCUMENTOS[0]?.id ?? null,
+  visiveis: DOCUMENTOS,
+};
+
+let modo = 'demo';
+
+/* ------------------------------------------------------------ filtro */
+
+/** Mesma correspondência de categorias do protótipo. */
+function categoriaCombina(categoria, tipo) {
+  switch (categoria) {
+    case 'Todos': return true;
+    case 'A revisar': return tipo === 'Não classificado';
+    case 'Contas': return tipo.startsWith('Conta');
+    case 'Notas fiscais': return tipo === 'Nota fiscal';
+    case 'Comprovantes': return tipo === 'Comprovante';
+    case 'Contratos': return tipo === 'Contrato';
+    default: return true;
+  }
+}
+
+/** Busca no nome, no tipo, no trecho lido, na data e nas palavras-chave. */
+function buscaCombina(termo, documento) {
+  if (!termo) return true;
+  const feno = [
+    documento.arquivo,
+    documento.tipo,
+    documento.trecho,
+    documento.data,
+    ...documento.chaves,
+  ].join(' ').toLowerCase();
+  return feno.includes(termo);
+}
+
+function filtrarLocalmente() {
+  const termo = estado.busca.trim().toLowerCase();
+  return estado.documentos.filter(
+    (doc) => categoriaCombina(estado.categoria, doc.tipo) && buscaCombina(termo, doc)
+  );
+}
+
+/* ------------------------------------------------------------ desenho */
+
+const ehRevisar = (tipo) => tipo === 'Não classificado';
+
+function desenharCategorias() {
+  el.categorias.replaceChildren(
+    ...estado.categorias.map((categoria) => {
+      const botao = document.createElement('button');
+      botao.type = 'button';
+      botao.className = 'categoria';
+      botao.setAttribute('aria-pressed', String(categoria.nome === estado.categoria));
+      botao.innerHTML =
+        '<span class="categoria__nome"></span><span class="categoria__contagem"></span>';
+      botao.querySelector('.categoria__nome').textContent = categoria.nome;
+      botao.querySelector('.categoria__contagem').textContent = categoria.contagem;
+      botao.addEventListener('click', () => {
+        estado.categoria = categoria.nome;
+        carregar();
+      });
+      return botao;
+    })
+  );
+}
+
+function desenharNumeros() {
+  const { arquivados, hoje, ocr, revisar } = estado.estatisticas;
+  const celulas = [
+    ['Arquivados', arquivados, false],
+    ['Hoje', hoje, false],
+    ['Via OCR', ocr, false],
+    ['A revisar', revisar, true],
+  ];
+
+  el.numeros.replaceChildren(
+    ...celulas.map(([rotulo, valor, atencao]) => {
+      const item = document.createElement('li');
+      item.innerHTML =
+        '<span class="ad-rotulo"></span><span class="numeros__valor"></span>';
+      item.querySelector('.ad-rotulo').textContent = rotulo;
+      const alvo = item.querySelector('.numeros__valor');
+      alvo.textContent = valor;
+      if (atencao) alvo.classList.add('numeros__valor--atencao');
+      return item;
+    })
+  );
+}
+
+function montarLinha(documento) {
+  const linha = document.createElement('div');
+  linha.className = 'linha';
+  linha.setAttribute('role', 'row');
+  linha.tabIndex = 0;
+  linha.dataset.id = String(documento.id);
+  linha.setAttribute('aria-selected', String(documento.id === estado.selecionado));
+
+  linha.innerHTML = `
+    <span role="gridcell">
+      <span class="linha__arquivo"></span>
+      <span class="linha__origem"></span>
+    </span>
+    <span role="gridcell"><span class="ad-etiqueta"></span></span>
+    <span role="gridcell" class="linha__conf"><span class="linha__rotulo">conf.</span><span data-valor></span></span>
+    <span role="gridcell" class="linha__data"><span class="linha__rotulo">data</span><span data-valor></span></span>
+    <span role="gridcell" class="linha__destino"></span>`;
+
+  linha.querySelector('.linha__arquivo').textContent = documento.arquivo;
+  linha.querySelector('.linha__origem').textContent = documento.origem;
+
+  const etiqueta = linha.querySelector('.ad-etiqueta');
+  etiqueta.textContent = documento.tipo;
+  etiqueta.classList.toggle('ad-etiqueta--revisar', ehRevisar(documento.tipo));
+
+  const conf = linha.querySelector('.linha__conf');
+  conf.querySelector('[data-valor]').textContent = documento.confianca;
+  conf.classList.toggle('linha__conf--baixa', ehRevisar(documento.tipo));
+
+  linha.querySelector('.linha__data [data-valor]').textContent = documento.data;
+  linha.querySelector('.linha__destino').textContent = documento.destino;
+
+  linha.addEventListener('click', () => selecionar(documento.id));
+  linha.addEventListener('keydown', (evento) => {
+    if (evento.key === 'Enter' || evento.key === ' ') {
+      evento.preventDefault();
+      selecionar(documento.id);
+    }
+    if (evento.key === 'ArrowDown' || evento.key === 'ArrowUp') {
+      evento.preventDefault();
+      const passo = evento.key === 'ArrowDown' ? 1 : -1;
+      const irmaos = [...el.linhas.children];
+      const vizinho = irmaos[irmaos.indexOf(linha) + passo];
+      if (vizinho) {
+        vizinho.focus();
+        selecionar(Number(vizinho.dataset.id));
+      }
+    }
+  });
+
+  return linha;
+}
+
+function desenharTabela() {
+  el.linhas.replaceChildren(...estado.visiveis.map(montarLinha));
+  el.vazio.hidden = estado.visiveis.length > 0;
+
+  el.resumo.textContent =
+    `${estado.visiveis.length} de ${estado.documentos.length} registros` +
+    ` · categoria ${estado.categoria}`;
+}
+
+function desenharDetalhe() {
+  const doc = estado.documentos.find((d) => d.id === estado.selecionado);
+
+  // Filtro sem resultado: não há o que explicar.
+  el.detalhe.hidden = !doc;
+  if (!doc) return;
+
+  el.detArquivo.textContent = doc.arquivo;
+
+  el.detEtiqueta.className = ehRevisar(doc.tipo)
+    ? 'ad-etiqueta ad-etiqueta--revisar'
+    : 'ad-etiqueta';
+  el.detEtiqueta.textContent = doc.tipo;
+
+  el.detConfianca.textContent = `confiança ${doc.confianca}`;
+  el.detRegra.textContent = doc.regra;
+
+  el.detChaves.replaceChildren(
+    ...doc.chaves.map((chave) => {
+      const marca = document.createElement('span');
+      marca.className = 'ad-chave';
+      marca.textContent = chave;
+      return marca;
+    })
+  );
+
+  el.detTrajeto.replaceChildren(
+    ...doc.etapas.map((etapa) => {
+      const passo = document.createElement('li');
+      passo.className = 'trajeto__passo';
+      passo.innerHTML = `
+        <span class="trajeto__eixo" aria-hidden="true">
+          <span class="trajeto__ponto"></span>
+          <span class="trajeto__fio"></span>
+        </span>
+        <span>
+          <h4 class="trajeto__titulo"></h4>
+          <p class="trajeto__detalhe"></p>
+        </span>`;
+      passo.querySelector('.trajeto__titulo').textContent = etapa.titulo;
+      passo.querySelector('.trajeto__detalhe').textContent = etapa.detalhe;
+      return passo;
+    })
+  );
+
+  el.detTrecho.textContent = doc.trecho;
+}
+
+function desenhar() {
+  el.pasta.textContent = estado.pasta;
+  desenharCategorias();
+  desenharNumeros();
+  desenharTabela();
+  desenharDetalhe();
+}
+
+/* --------------------------------------------------------- interação */
+
+function selecionar(id) {
+  estado.selecionado = id;
+  [...el.linhas.children].forEach((linha) => {
+    linha.setAttribute('aria-selected', String(Number(linha.dataset.id) === id));
+  });
+  desenharDetalhe();
+}
+
+/** Recalcula o que está visível e mantém a seleção coerente com o filtro. */
+async function carregar() {
+  if (modo === 'real') {
+    const busca = new URLSearchParams({ cat: estado.categoria, q: estado.busca });
+    try {
+      const resposta = await fetch(`api/documentos?${busca}`);
+      const dados = await resposta.json();
+      estado.visiveis = dados.linhas ?? [];
+      if (dados.categorias) estado.categorias = dados.categorias;
+      if (dados.estatisticas) estado.estatisticas = dados.estatisticas;
+      // O servidor manda só o que passou no filtro; o detalhe precisa achar
+      // o documento selecionado nessa mesma lista.
+      estado.documentos = dados.todos ?? estado.visiveis;
+    } catch {
+      estado.visiveis = [];
+    }
+  } else {
+    estado.visiveis = filtrarLocalmente();
+  }
+
+  const aindaVisivel = estado.visiveis.some((d) => d.id === estado.selecionado);
+  if (!aindaVisivel) estado.selecionado = estado.visiveis[0]?.id ?? null;
+
+  desenhar();
+}
+
+let temporizador;
+el.busca.addEventListener('input', (evento) => {
+  estado.busca = evento.target.value;
+  clearTimeout(temporizador);
+  temporizador = setTimeout(carregar, ESPERA_BUSCA);
+});
+
+/* --------------------------------------------------- documentos novos */
+
+/** O watchdog rodando de verdade: cada arquivo novo aparece sozinho. */
+function ouvirNovidades() {
+  const fonte = new EventSource('api/eventos');
+
+  fonte.onmessage = (evento) => {
+    const documento = JSON.parse(evento.data);
+    estado.documentos = [documento, ...estado.documentos];
+    carregar();
+  };
+
+  fonte.onerror = () => {
+    el.vigia.textContent = 'watchdog desconectado';
+    el.vigia.closest('.lateral__vigia').dataset.ativo = 'nao';
+    fonte.close();
+  };
+}
+
+/* ------------------------------------------------------------- início */
+
+modo = await detectarModo();
+
+if (modo === 'demo') {
+  // Sem backend não há pasta sendo observada — dizer "watchdog ativo" seria
+  // mentira, então a demonstração se identifica como tal.
+  el.vigia.textContent = 'modo demonstração';
+  el.vigia.closest('.lateral__vigia').dataset.ativo = 'nao';
+} else {
+  ouvirNovidades();
+}
+
+await carregar();
