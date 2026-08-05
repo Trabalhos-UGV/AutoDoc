@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoDoc — seus documentos se organizam sozinhos</title>
+<meta name="description" content="Sistema de organização automática de documentos: monitora uma pasta, lê o conteúdo dos arquivos, classifica, data e arquiva tudo de forma pesquisável.">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/landing.css">
+</head>
+<body>
+
+<!-- Barra de demonstração: permite percorrer as três telas como no protótipo.
+     Não faz parte do produto — ver o comentário em css/base.css. -->
+<nav class="ad-abas" aria-label="Telas do protótipo">
+  <a class="ad-abas__item" href="index.html" aria-current="page">Download</a>
+  <a class="ad-abas__item" href="../autodoc/web/estatico/instalador.html">Instalação</a>
+  <a class="ad-abas__item" href="../autodoc/web/estatico/app.html">Gerenciamento</a>
+</nav>
+
+<main class="pagina">
+
+  <section class="apresentacao">
+    <div class="marca">
+      <span class="marca__sigla" aria-hidden="true">A</span>
+      <span class="marca__nome">AutoDoc</span>
+      <span class="marca__versao ad-mono" data-versao>v0.2.0 · beta</span>
+    </div>
+
+    <h1 class="titulo">Seus documentos se organizam sozinhos.</h1>
+
+    <p class="resumo">
+      Sistema de organização automática de documentos — monitora uma pasta, lê o
+      conteúdo dos arquivos, classifica, data e arquiva tudo de forma pesquisável,
+      sem intervenção manual.
+    </p>
+
+    <div class="download">
+      <div class="download__botoes" data-baixar>
+        <a class="ad-botao ad-botao--primario" data-sistema="windows"
+           href="downloads/autodoc-setup.pyz" download>
+          <span aria-hidden="true">↓</span> Baixar para Windows
+        </a>
+        <a class="ad-botao ad-botao--secundario" data-sistema="macos"
+           href="downloads/AutoDoc-Setup-macOS.zip" download>macOS</a>
+        <a class="ad-botao ad-botao--secundario" data-sistema="linux"
+           href="downloads/autodoc-setup.pyz" download>Linux</a>
+      </div>
+
+      <p class="download__meta ad-mono" data-meta>
+        <span data-arquivo>autodoc-setup.pyz</span>
+        <span data-tamanho>~60 KB</span>
+        <span>requer Python 3.10+</span>
+      </p>
+
+      <!-- Preenchido por landing.js quando o pacote ainda não foi gerado. -->
+      <p class="aviso" data-aviso hidden></p>
+
+      <p class="download__nota" data-nota-macos hidden>
+        Na primeira vez, o macOS bloqueia programas sem assinatura da Apple:
+        clique com o botão direito no arquivo e escolha <strong>Abrir</strong>.
+      </p>
+    </div>
+
+    <ul class="requisitos ad-grade">
+      <li>
+        <span class="ad-rotulo">Requisito</span>
+        <span class="requisitos__valor">Python 3.10+</span>
+      </li>
+      <li>
+        <span class="ad-rotulo">OCR</span>
+        <span class="requisitos__valor">Tesseract <em>opcional</em></span>
+      </li>
+      <li>
+        <span class="ad-rotulo">Banco</span>
+        <span class="requisitos__valor">SQLite local</span>
+      </li>
+    </ul>
+
+    <footer class="creditos">
+      <span class="ad-rotulo">Integrantes do grupo</span>
+      <ul class="creditos__lista">
+        <li>Rafael Matheus Miers Sobrinho</li>
+        <li>Thiago Soares</li>
+        <li>Wellinton Slabey</li>
+        <li>Gabriel Dos Santos</li>
+      </ul>
+    </footer>
+  </section>
+
+  <aside class="explicacao">
+    <h2 class="ad-rotulo">Como funciona</h2>
+
+    <ol class="etapas">
+      <li class="etapas__item">
+        <span class="etapas__numero ad-mono">01</span>
+        <div>
+          <h3 class="etapas__titulo">Monitora a pasta</h3>
+          <p class="etapas__texto">
+            O <code>watchdog</code> detecta qualquer arquivo novo na pasta definida por você.
+          </p>
+        </div>
+      </li>
+      <li class="etapas__item">
+        <span class="etapas__numero ad-mono">02</span>
+        <div>
+          <h3 class="etapas__titulo">Lê o conteúdo</h3>
+          <p class="etapas__texto">
+            Extrai o texto direto do PDF ou por OCR quando é imagem ou digitalização.
+          </p>
+        </div>
+      </li>
+      <li class="etapas__item">
+        <span class="etapas__numero ad-mono">03</span>
+        <div>
+          <h3 class="etapas__titulo">Classifica e data</h3>
+          <p class="etapas__texto">
+            Regras de palavras-chave definem o tipo; <code>regex + dateparser</code>
+            encontram a data do documento.
+          </p>
+        </div>
+      </li>
+      <li class="etapas__item">
+        <span class="etapas__numero ad-mono">04</span>
+        <div>
+          <h3 class="etapas__titulo">Arquiva e indexa</h3>
+          <p class="etapas__texto">
+            Move para a pasta correta e grava no SQLite. Busque por “conta de luz março”.
+          </p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="ad-console">
+      <div class="ad-console__comentario"># executar em modo desenvolvedor</div>
+      <div><span class="ad-console__cifrao">$</span> pip install -r requirements.txt</div>
+      <div><span class="ad-console__cifrao">$</span> python main.py monitorar</div>
+    </div>
+  </aside>
+
+</main>
+
+<script type="module" src="js/landing.js"></script>
+</body>
+</html>
