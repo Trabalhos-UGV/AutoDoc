@@ -1,0 +1,251 @@
+/* AutoDoc — base visual compartilhada pelos tres front-ends.
+
+   As cores saem do prototipo, que foi desenhado em oklch(). Os valores aqui
+   sao os hexadecimais equivalentes, calculados pela mesma conversao usada para
+   gerar os frames. Tons imperceptivelmente proximos foram agrupados no papel
+   que cumprem: o prototipo tinha quatro bordas entre #27241e e #312d27. */
+
+@import url('fontes.css');
+
+:root {
+  /* superficies, do mais fundo ao mais alto */
+  --ad-console:      #0c0a07;
+  --ad-fundo:        #110f0b;
+  --ad-linha:        #15120e;
+  --ad-painel:       #171510;
+  --ad-cartao:       #181611;
+  --ad-barra:        #1d1a15;
+  --ad-cabecalho:    #1e1b17;
+  --ad-linha-sel:    #211e18;
+
+  /* bordas */
+  --ad-borda:        #27241e;
+  --ad-borda-forte:  #312d27;
+  --ad-borda-viva:   #3b3831;
+
+  /* texto, do mais forte ao mais apagado */
+  --ad-tinta-forte:  #f5f2e9;
+  --ad-tinta:        #f1eee6;
+  --ad-texto:        #bab7b0;
+  --ad-apagado:      #a19e98;
+  --ad-fraco:        #82807a;
+  --ad-fantasma:     #65635d;
+
+  /* acento */
+  --ad-acento:       #f0c12a;
+  --ad-acento-claro: #fddb72;
+  --ad-acento-fraco: rgba(240, 193, 42, 0.14);
+  --ad-acento-linha: rgba(240, 193, 42, 0.30);
+
+  /* estado positivo — watchdog ativo, etapa concluida, backup em dia */
+  --ad-verde:        #57c791;
+  --ad-verde-fraco:  rgba(87, 199, 145, 0.13);
+  --ad-verde-linha:  rgba(87, 199, 145, 0.35);
+
+  --ad-sans: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, Helvetica, sans-serif;
+  --ad-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --ad-raio:      12px;
+  --ad-raio-min:   8px;
+  --ad-sombra:    0 40px 90px -30px rgba(1, 0, 0, 0.9);
+}
+
+/* ---------------------------------------------------------------- reset */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ad-fundo);
+  color: var(--ad-tinta);
+  font-family: var(--ad-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: var(--ad-acento); text-decoration: none; }
+a:hover { color: var(--ad-acento-claro); }
+
+::selection { background: var(--ad-acento); color: var(--ad-fundo); }
+
+/* O prototipo nao previa foco de teclado — uma interface real precisa. */
+:focus-visible {
+  outline: 2px solid var(--ad-acento);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --------------------------------------------------------- tipografia */
+
+.ad-mono { font-family: var(--ad-mono); }
+
+/* Rotulo em versalete usado em toda a interface para titular blocos. */
+.ad-rotulo {
+  font-family: var(--ad-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ad-fraco);
+}
+.ad-rotulo--acento { color: var(--ad-acento); }
+
+/* ------------------------------------------------------------ botoes */
+
+.ad-botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 13px 22px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-family: var(--ad-sans);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.ad-botao--primario { background: var(--ad-acento); color: var(--ad-fundo); }
+.ad-botao--primario:hover:not(:disabled) { background: var(--ad-acento-claro); }
+
+.ad-botao--secundario {
+  background: transparent;
+  border-color: var(--ad-borda-viva);
+  color: var(--ad-tinta);
+  font-weight: 500;
+}
+.ad-botao--secundario:hover:not(:disabled) { border-color: var(--ad-acento); }
+
+.ad-botao:disabled {
+  background: #2c2922;
+  color: var(--ad-fantasma);
+  cursor: default;
+}
+
+/* ------------------------------------------------------------ blocos */
+
+.ad-cartao {
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: var(--ad-raio);
+  background: var(--ad-cartao);
+}
+
+/* Etiqueta de categoria. O modificador --revisar usa o acento porque no
+   prototipo o documento nao classificado se destaca em amarelo. */
+.ad-etiqueta {
+  font-family: var(--ad-mono);
+  font-size: 11px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+  color: var(--ad-verde);
+  background: var(--ad-verde-fraco);
+  border: 1px solid var(--ad-verde-linha);
+}
+.ad-etiqueta--revisar {
+  color: var(--ad-acento);
+  background: var(--ad-acento-fraco);
+  border-color: var(--ad-acento-linha);
+}
+
+/* Palavra-chave que disparou a regra de classificacao. */
+.ad-chave {
+  font-family: var(--ad-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--ad-acento-fraco);
+  color: #f2ce59;
+  border: 1px solid var(--ad-acento-linha);
+}
+
+/* Grade de celulas separadas por 1px — usada nas estatisticas, nos
+   requisitos da landing e na lista de etapas do instalador. */
+.ad-grade {
+  display: grid;
+  gap: 1px;
+  background: var(--ad-borda-forte);
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: var(--ad-raio);
+  overflow: hidden;
+}
+.ad-grade > * { background: var(--ad-cartao); }
+
+.ad-console {
+  font-family: var(--ad-mono);
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--ad-apagado);
+  background: var(--ad-console);
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: var(--ad-raio);
+  padding: 16px 18px;
+}
+.ad-console__cifrao { color: var(--ad-acento); }
+.ad-console__comentario { color: var(--ad-fantasma); }
+
+/* Ponto pulsante do "watchdog ativo" e da etapa em andamento. O gerador dos
+   frames removia esta animacao de proposito, para a captura do Figma sair
+   sempre igual; aqui ela volta. */
+@keyframes ad-pulso { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }
+
+.ad-pulso { animation: ad-pulso 2s ease-in-out infinite; }
+
+/* -------------------------------------------- navegacao de demonstracao
+
+   Barra de abas do topo. NAO faz parte do produto: no sistema real a landing
+   e um site e o instalador e o app sao janelas locais distintas, sem
+   navegacao entre si. Ela existe para apresentar as tres telas em sequencia,
+   como no prototipo do Figma, e some quando o backend assume (js/modo.js). */
+
+.ad-abas {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 999px;
+  background: rgba(31, 29, 24, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid #36322c;
+}
+
+.ad-abas__item {
+  padding: 8px 15px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ad-apagado);
+  font-family: var(--ad-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.ad-abas__item:hover { color: var(--ad-tinta); }
+.ad-abas__item[aria-current='page'] { background: var(--ad-acento); color: var(--ad-fundo); }
+
+/* Some quando a pagina esta sendo servida pelo backend de verdade. */
+body[data-modo='real'] .ad-abas { display: none; }
+
+/* Em tela estreita a barra mede 343px e sobra pouco: encolhe para nao ser ela
+   a criar rolagem horizontal num celular pequeno. */
+@media (max-width: 560px) {
+  .ad-abas { padding: 4px; gap: 2px; }
+  .ad-abas__item { padding: 7px 10px; font-size: 10px; letter-spacing: 0.04em; }
+}
+
+/* --------------------------------------------------------- acessivel */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
