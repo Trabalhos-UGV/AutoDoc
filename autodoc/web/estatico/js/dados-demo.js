@@ -23,19 +23,19 @@ export const ETAPAS = [
   },
   {
     "titulo": "Instalando dependências",
-    "detalhe": "watchdog, dateparser, pillow, pypdf",
+    "detalhe": "watchdog, pypdf, pytesseract, dateparser",
     "logs": [
       "pip install -r requirements.txt",
       "watchdog 4.0.1 ok",
-      "dateparser 1.2.0 ok"
+      "pypdf 4.2.0 ok"
     ]
   },
   {
     "titulo": "Configurando motor de OCR",
-    "detalhe": "EasyOCR (pt) — modelo 64 MB",
+    "detalhe": "Tesseract — opcional, só para ler imagens",
     "logs": [
-      "baixando modelo craft_mlt_25k.pth",
-      "OCR pt-BR pronto"
+      "procurando tesseract no PATH",
+      "Tesseract 5.3.4 encontrado"
     ]
   },
   {

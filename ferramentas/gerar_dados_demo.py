@@ -33,6 +33,22 @@ CABECALHO = """/* Dados de demonstracao — os mesmos seis documentos, seis cate
 
 """
 
+# O prototipo foi desenhado antes de o motor de OCR ser escolhido, e descrevia
+# EasyOCR baixando um modelo de 64 MB. O projeto ficou com Tesseract opcional:
+# leve, mas pacote de sistema, e sem ele o AutoDoc instala e roda do mesmo
+# jeito. Estas seis etapas descrevem o NOSSO instalador, entao precisam dizer o
+# que ele realmente faz — o resto do prototipo passa intacto.
+CORRECOES_ETAPAS = {
+    "Instalando dependências": dict(
+        detail="watchdog, pypdf, pytesseract, dateparser",
+        logs=["pip install -r requirements.txt", "watchdog 4.0.1 ok", "pypdf 4.2.0 ok"],
+    ),
+    "Configurando motor de OCR": dict(
+        detail="Tesseract — opcional, só para ler imagens",
+        logs=["procurando tesseract no PATH", "Tesseract 5.3.4 encontrado"],
+    ),
+}
+
 
 def carregar_prototipo(pasta: Path):
     """Importa o _build.py da pasta de saida do prototipo."""
@@ -49,10 +65,14 @@ def carregar_prototipo(pasta: Path):
 
 
 def montar_js(proto) -> str:
-    etapas = [
-        dict(titulo=s["title"], detalhe=s["detail"], logs=s["logs"])
-        for s in proto.STEPS
-    ]
+    etapas = []
+    for etapa in proto.STEPS:
+        correcao = CORRECOES_ETAPAS.get(etapa["title"], {})
+        etapas.append(dict(
+            titulo=etapa["title"],
+            detalhe=correcao.get("detail", etapa["detail"]),
+            logs=correcao.get("logs", etapa["logs"]),
+        ))
     documentos = [
         dict(
             id=i + 1,
