@@ -233,6 +233,13 @@ a:hover { color: var(--ad-acento-claro); }
 /* Some quando a pagina esta sendo servida pelo backend de verdade. */
 body[data-modo='real'] .ad-abas { display: none; }
 
+/* Em tela estreita a barra mede 343px e sobra pouco: encolhe para nao ser ela
+   a criar rolagem horizontal num celular pequeno. */
+@media (max-width: 560px) {
+  .ad-abas { padding: 4px; gap: 2px; }
+  .ad-abas__item { padding: 7px 10px; font-size: 10px; letter-spacing: 0.04em; }
+}
+
 /* --------------------------------------------------------- acessivel */
 
 @media (prefers-reduced-motion: reduce) {
