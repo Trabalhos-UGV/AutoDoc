@@ -8,6 +8,9 @@
 import { ETAPAS, PASTA_MONITORADA } from './dados-demo.js';
 import { detectarModo, esperar } from './modo.js';
 
+// Mantenha em passo com __version__ em autodoc/__init__.py.
+const VERSAO = '0.2.0';
+
 const MARCAS = { pronto: '✓', agora: '•', espera: '' };
 const LINHAS_VISIVEIS = 6;
 
@@ -15,6 +18,7 @@ const LINHAS_VISIVEIS = 6;
 const HORARIOS = ['04:12', '04:14', '04:17', '04:19', '04:22', '04:25'];
 
 const el = {
+  tituloJanela: document.querySelector('[data-titulo-janela]'),
   fase: document.querySelector('[data-fase]'),
   etapaAtual: document.querySelector('[data-etapa-atual]'),
   percentual: document.querySelector('[data-percentual]'),
@@ -231,6 +235,7 @@ el.alterar.addEventListener('click', async () => {
 /* ------------------------------------------------------------- início */
 
 modo = await detectarModo();
+el.tituloJanela.textContent = `Instalador AutoDoc — ${VERSAO}`;
 montarEtapas();
 desenhar();
 iniciarMotor();
