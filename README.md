@@ -73,6 +73,30 @@ python main.py listar             # últimos documentos processados
 
 Após iniciado, o AutoDoc passa a monitorar a pasta configurada. Qualquer arquivo novo colocado nela será lido, classificado, datado e armazenado automaticamente no banco de dados pesquisável.
 
+### Interface gráfica
+
+O AutoDoc tem três telas, todas em HTML/CSS/JavaScript puro — sem framework, sem
+etapa de build e sem nada vindo de CDN, porque o programa roda offline. Para vê-las
+funcionando:
+
+```bash
+python3 ferramentas/servir_demo.py
+```
+
+O comando serve a raiz do projeto e abre a landing no navegador; a barra no topo
+alterna entre as três telas.
+
+| Tela | Arquivo | O que faz |
+| --- | --- | --- |
+| Landing / download | [site/index.html](site/index.html) | Página pública. Detecta o sistema do visitante, promove o download certo e mostra o tamanho real do pacote |
+| Instalação | [autodoc/web/estatico/instalador.html](autodoc/web/estatico/instalador.html) | Acompanha as seis etapas da instalação com barra de progresso e log ao vivo |
+| Gerenciamento | [autodoc/web/estatico/app.html](autodoc/web/estatico/app.html) | Lista os documentos processados, filtra por categoria, busca no conteúdo e explica cada classificação |
+
+**Modo demonstração.** Sem o servidor do AutoDoc no ar, as telas usam dados de
+exemplo e se identificam como tal — a barra lateral mostra "modo demonstração"
+em vez de "watchdog ativo", e a landing avisa quando o pacote ainda não foi
+gerado. Quando o backend responde, elas passam a usar os dados reais sozinhas.
+
 ## Estrutura do Projeto
 
 ```
@@ -84,6 +108,9 @@ autodoc/
   datas.py          # identificação da data do documento
   pipeline.py       # orquestra leitura, arquivamento e backup
   monitor.py        # monitoramento da pasta com watchdog
+  web/estatico/     # telas de instalação e gerenciamento (HTML, CSS, JS, fontes)
+site/               # landing page, publicável sozinha
+ferramentas/        # scripts de apoio ao desenvolvimento
 main.py             # interface de linha de comando
 ```
 
@@ -110,5 +137,33 @@ Além do escopo original da proposta, esta base inclui:
 - **Deduplicação por hash**, evitando reprocessar o mesmo documento.
 - **Processamento de pendentes**: arquivos já presentes na pasta quando o monitor sobe também são processados.
 - **Arquivamento por categoria e ano**, com renomeação automática em caso de nome repetido.
+- **Três telas gráficas** (landing, instalador e gerenciamento), responsivas e navegáveis por teclado.
+- **Funcionamento offline**: as fontes ficam versionadas no projeto, então nenhuma tela depende de internet.
+- **Modo demonstração** em todas as telas, para apresentar o sistema sem precisar instalá-lo.
+- **Detecção de sistema operacional** na landing, promovendo o download certo para quem visita.
 
-> **Status atual:** base funcional implementada (v0.1.0) — extração, classificação, datação, arquivamento, indexação e busca. As próximas etapas incluem OCR como fallback para PDFs escaneados, refinamento das regras de classificação e testes automatizados.
+### Instalação pela landing page
+
+O plano é que o AutoDoc seja instalado a partir da própria landing, e não por
+linha de comando. O caminho:
+
+1. A landing entrega um **bootstrapper** de uns 60 KB — não um executável gigante.
+   Por isso o Python 3.10+ é pré-requisito, e por isso a primeira etapa do
+   instalador é literalmente procurar o Python na máquina.
+2. Executado, o bootstrapper sobe um servidor local e abre a tela de instalação
+   no navegador.
+3. As seis etapas ali são **operações reais** — criar o `venv`, rodar o
+   `pip install`, localizar o Tesseract, criar o `autodoc.db`, registrar a pasta
+   monitorada —, com o log saindo na tela conforme acontecem.
+4. Ao terminar, "Abrir o AutoDoc" leva à tela de gerenciamento, já lendo o banco.
+
+Cada sistema recebe um invólucro diferente, porque um `.pyz` não é clicável em
+todo lugar: `.pyz` no Windows, um `.command` dentro de um `.zip` no macOS, e
+linha de comando no Linux. No macOS, o Gatekeeper bloqueia programas sem
+assinatura da Apple na primeira execução — o caminho é clicar com o botão direito
+e escolher **Abrir**.
+
+> **Status atual:** núcleo funcional e as três telas construídas (v0.2.0). O
+> bootstrapper e o servidor local que ligam as telas ao núcleo são a próxima
+> etapa; até lá as telas rodam em modo demonstração. Depois disso vêm o OCR como
+> fallback para PDFs digitalizados, o índice FTS5 e os testes automatizados.
