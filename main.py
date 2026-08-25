@@ -1,7 +1,8 @@
 """Ponto de entrada do AutoDoc.
 
 Uso:
-    python main.py monitorar          # observa a pasta de entrada
+    python main.py app                # abre a janela do AutoDoc
+    python main.py monitorar          # observa a pasta pelo terminal
     python main.py buscar "luz marco" # busca nos documentos indexados
     python main.py listar             # ultimos documentos processados
 """
@@ -17,6 +18,8 @@ from autodoc.config import Config
 from autodoc.db import Banco
 from autodoc.monitor import monitorar, processar_pendentes
 from autodoc.pipeline import Pipeline
+from autodoc.web import janela
+from autodoc.web.servidor import PORTA_PADRAO, Servidor
 
 
 def montar_parser() -> argparse.ArgumentParser:
@@ -24,7 +27,10 @@ def montar_parser() -> argparse.ArgumentParser:
     parser.add_argument("--versao", action="version", version=f"AutoDoc {__version__}")
     subcomandos = parser.add_subparsers(dest="comando")
 
-    subcomandos.add_parser("monitorar", help="observa a pasta de entrada")
+    aplicativo = subcomandos.add_parser("app", help="abre a janela do AutoDoc")
+    aplicativo.add_argument("--porta", type=int, default=PORTA_PADRAO)
+
+    subcomandos.add_parser("monitorar", help="observa a pasta pelo terminal")
 
     buscar = subcomandos.add_parser("buscar", help="busca por conteudo, categoria ou data")
     buscar.add_argument("termo")
@@ -46,6 +52,25 @@ def imprimir(linhas) -> None:
         print(f'       {linha["caminho"]}')
 
 
+def abrir_aplicativo(config: Config, banco: Banco, porta: int) -> int:
+    """Sobe o servidor local e abre a janela do AutoDoc.
+
+    O servidor fica em threads e a janela toma a thread principal, porque no
+    macOS o sistema so deixa criar janela na principal. Quando a janela fecha,
+    o servidor e o monitoramento vao junto — nao faz sentido continuar
+    vigiando a pasta com o programa fechado.
+    """
+    servidor = Servidor(config, banco, Pipeline(config, banco), porta)
+    url = servidor.iniciar()
+
+    print(f"AutoDoc v{__version__} — monitorando {config.pasta_entrada}")
+    try:
+        janela.abrir(url, titulo="AutoDoc")
+    finally:
+        servidor.parar()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -54,7 +79,10 @@ def main(argv: list[str] | None = None) -> int:
     config.preparar_pastas()
     banco = Banco(config.banco)
 
-    comando = args.comando or "monitorar"
+    comando = args.comando or "app"
+
+    if comando == "app":
+        return abrir_aplicativo(config, banco, args.porta)
 
     if comando == "buscar":
         imprimir(banco.buscar(args.termo, args.limite))
