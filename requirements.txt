@@ -1,5 +1,14 @@
+# Monitoramento da pasta de entrada.
 watchdog>=4.0.0
+
+# Leitura de PDF com camada de texto.
+pypdf>=4.0.0
+
+# Janela nativa do app — usa o motor do proprio sistema (WebKit no macOS,
+# WebView2 no Windows, GTK no Linux), sem baixar navegador junto.
+pywebview>=5.0
+
+# OCR de imagens e PDFs digitalizados. Opcional: sem o Tesseract instalado no
+# sistema, o AutoDoc roda igual e so deixa de ler imagens.
 pytesseract>=0.3.10
 Pillow>=10.0.0
-pypdf>=4.0.0
-dateparser>=1.2.0
