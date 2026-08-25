@@ -56,7 +56,8 @@ class Pipeline:
             logger.warning("nao foi possivel ler %s: %s", caminho.name, erro)
             return Resultado(caminho, ignorado=str(erro))
 
-        categoria = classificar(texto)
+        classificacao = classificar(texto)
+        categoria = classificacao.categoria
         data = extrair_data(texto, padrao=data_de_modificacao(caminho))
         destino = self._arquivar(caminho, categoria, data)
 
