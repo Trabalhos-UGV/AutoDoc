@@ -1,0 +1,19 @@
+DANFE - DOCUMENTO AUXILIAR DA NOTA FISCAL ELETRONICA
+NOTA FISCAL ELETRONICA No 001.234  Serie 1
+
+EMITENTE
+Papelaria Central Ltda
+CNPJ 12.345.678/0001-90
+
+NATUREZA DA OPERACAO: Venda de mercadoria
+CHAVE DE ACESSO: 3126 0312 3456 7800 0190 5500 1000 0012 3410 0012 3456
+
+PRODUTOS
+2x Caderno universitario 200fls        R$  53,80
+1x Kit canetas esferograficas          R$  38,90
+
+Base de calculo ICMS      R$ 92,70
+Valor do ICMS             R$ 16,69
+VALOR TOTAL DA NOTA       R$ 92,70
+
+Data de emissao: 08/03/2026

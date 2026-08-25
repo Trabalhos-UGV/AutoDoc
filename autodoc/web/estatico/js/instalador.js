@@ -6,10 +6,10 @@
    em demonstração, um roteiro com os mesmos textos do protótipo. */
 
 import { ETAPAS, PASTA_MONITORADA } from './dados-demo.js';
-import { detectarModo, esperar } from './modo.js';
+import { detectarModo, esperar, estadoDoServidor } from './modo.js';
 
 // Mantenha em passo com __version__ em autodoc/__init__.py.
-const VERSAO = '0.2.0';
+const VERSAO = '0.3.0';
 
 const MARCAS = { pronto: '✓', agora: '•', espera: '' };
 const LINHAS_VISIVEIS = 6;
@@ -91,6 +91,15 @@ function desenhar() {
     const situacao = estadoDaEtapa(indice);
     item.dataset.estado = situacao;
     item.querySelector('.etapa__marca').textContent = MARCAS[situacao];
+
+    // Os textos também são redesenhados: em modo real o detalhe de cada etapa
+    // só existe depois que ela roda ("Python 3.13.12 encontrado"), e sem isto
+    // a tela ficaria mostrando o texto de demonstração para sempre.
+    const etapa = estado.etapas[indice];
+    if (etapa) {
+      item.querySelector('.etapa__titulo').textContent = etapa.titulo;
+      item.querySelector('.etapa__detalhe').textContent = etapa.detalhe ?? '';
+    }
   });
 
   el.log.replaceChildren(
@@ -168,6 +177,13 @@ function motorReal() {
     estado.concluido = Boolean(dados.concluido) || estado.progresso >= 100;
     desenhar();
 
+    if (dados.erro) {
+      el.fase.textContent = 'A instalação parou';
+      el.etapaAtual.textContent = dados.erro;
+      fonte.close();
+      return;
+    }
+
     if (estado.concluido) fonte.close();
   };
 
@@ -235,7 +251,17 @@ el.alterar.addEventListener('click', async () => {
 /* ------------------------------------------------------------- início */
 
 modo = await detectarModo();
-el.tituloJanela.textContent = `Instalador AutoDoc — ${VERSAO}`;
+
+if (modo === 'real') {
+  // A pasta precisa vir do servidor. Sem isto o instalador mandaria de volta a
+  // pasta de demonstração — um caminho do Windows que não existe nesta máquina
+  // — e gravaria isso no config.json como se fosse a pasta a monitorar.
+  const servidor = estadoDoServidor() ?? {};
+  if (servidor.pasta) estado.pasta = servidor.pasta;
+  if (servidor.versao) el.tituloJanela.textContent = `Instalador AutoDoc — ${servidor.versao}`;
+}
+
+if (modo !== 'real') el.tituloJanela.textContent = `Instalador AutoDoc — ${VERSAO}`;
 montarEtapas();
 desenhar();
 iniciarMotor();

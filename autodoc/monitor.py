@@ -43,8 +43,14 @@ def processar_pendentes(pipeline: Pipeline) -> int:
     return total
 
 
-def monitorar(pipeline: Pipeline) -> None:
-    """Bloqueia observando a pasta de entrada ate Ctrl+C."""
+def criar_observador(pipeline: Pipeline, ao_processar=None):
+    """Monta e inicia o observador da pasta de entrada.
+
+    `ao_processar` recebe cada Resultado bem-sucedido — e por onde o servidor
+    web fica sabendo que ha documento novo para empurrar para a tela. Devolve o
+    observador ja rodando; quem chamou decide se bloqueia ou nao, porque o CLI
+    quer bloquear e o servidor nao.
+    """
     try:
         from watchdog.events import FileSystemEventHandler
         from watchdog.observers import Observer
@@ -66,12 +72,29 @@ def monitorar(pipeline: Pipeline) -> None:
             caminho = Path(evento.dest_path if destino else evento.src_path)
             if caminho.name.startswith("."):
                 return
-            if aguardar_arquivo_pronto(caminho):
-                pipeline.processar(caminho)
+            if not aguardar_arquivo_pronto(caminho):
+                return
+
+            resultado = pipeline.processar(caminho)
+            if resultado.sucesso and ao_processar:
+                # Um erro no callback nao pode derrubar o observador: o
+                # monitoramento e o que faz o programa existir.
+                try:
+                    ao_processar(resultado)
+                except Exception:
+                    logger.exception("falha ao notificar documento novo")
 
     observador = Observer()
-    observador.schedule(Manipulador(), str(pipeline.config.pasta_entrada), recursive=False)
+    observador.schedule(
+        Manipulador(), str(pipeline.config.pasta_entrada), recursive=False
+    )
     observador.start()
+    return observador
+
+
+def monitorar(pipeline: Pipeline) -> None:
+    """Bloqueia observando a pasta de entrada ate Ctrl+C."""
+    observador = criar_observador(pipeline)
     logger.info("monitorando %s (Ctrl+C para sair)", pipeline.config.pasta_entrada)
 
     try:
