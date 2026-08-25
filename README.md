@@ -18,7 +18,7 @@ O AutoDoc resolve o problema da organização manual de documentos (contas, nota
 - **Python** — linguagem principal do projeto
 - **watchdog** — monitoramento da pasta de entrada
 - **Tesseract OCR** ou **EasyOCR** — leitura de texto em imagens e documentos escaneados
-- **regex** + **dateparser** — identificação e extração de datas
+- **regex** — identificação e extração de datas
 - **SQLite** — armazenamento e busca dos documentos processados
 - **pathlib** — compatibilidade de caminhos entre Windows e macOS
 
