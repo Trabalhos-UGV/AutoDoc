@@ -1,0 +1,17 @@
+COMPROVANTE DE TRANSFERENCIA
+
+Pix enviado
+Valor: R$ 340,00
+Data: 02/03/2026 09:18
+
+FAVORECIDO
+Marina Alves de Souza
+CHAVE PIX: marina.alves@email.com
+Instituicao: Banco do Brasil S.A.
+
+PAGADOR
+Thiago Soares
+Agencia 1234  Conta 56789-0
+
+ID DA TRANSACAO: E1234567820260302091844000
+AUTENTICACAO: 9F2A4C8E1B
