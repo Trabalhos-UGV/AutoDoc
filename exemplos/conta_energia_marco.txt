@@ -1,0 +1,18 @@
+CEMIG DISTRIBUICAO S.A.
+CNPJ 06.981.180/0001-16
+
+CONTA DE ENERGIA ELETRICA
+Instalacao 3001234567          Classe: Residencial
+Mes de referencia: MAR/2026
+
+LEITURA ANTERIOR   12/02/2026    8.412 kWh
+LEITURA ATUAL      12/03/2026    8.626 kWh
+CONSUMO FATURADO                   214 kWh
+
+Bandeira tarifaria: verde
+Energia eletrica consumida       R$ 152,18
+Iluminacao publica               R$   9,40
+Tributos                         R$  25,85
+
+TOTAL A PAGAR                    R$ 187,43
+VENCIMENTO                       12/03/2026
