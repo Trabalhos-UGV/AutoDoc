@@ -230,7 +230,13 @@
   padding: 11px 17px;
   background: var(--ad-cabecalho);
   border-bottom: 1px solid #292620;
+}
+
+/* Nao quebrar em duas linhas, mas tambem nao invadir a coluna do lado. */
+.tabela__cabecalho > * {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .linha {
@@ -410,8 +416,12 @@
 
 /* ----------------------------------------------------- responsivo */
 
-/* O detalhe desce para baixo da tabela e a lateral segue à esquerda. */
-@media (max-width: 1180px) {
+/* O detalhe desce para baixo da tabela e a lateral segue à esquerda.
+
+   O corte é 1300px porque a tabela tem cinco colunas e, com a lateral (236px)
+   e o detalhe (372px) ao lado, sobra pouco demais para elas: os títulos do
+   cabeçalho passam a se sobrepor. */
+@media (max-width: 1300px) {
   .painel {
     grid-template-columns: 236px minmax(0, 1fr);
     grid-template-areas: 'lateral centro' 'lateral detalhe';

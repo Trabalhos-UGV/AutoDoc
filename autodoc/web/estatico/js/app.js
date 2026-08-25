@@ -14,7 +14,7 @@ import {
   ESTATISTICAS,
   PASTA_MONITORADA,
 } from './dados-demo.js';
-import { detectarModo } from './modo.js';
+import { detectarModo, estadoDoServidor } from './modo.js';
 
 const ESPERA_BUSCA = 180; // ms de silêncio antes de consultar
 
@@ -28,6 +28,8 @@ const el = {
   linhas: document.querySelector('[data-linhas]'),
   vazio: document.querySelector('[data-vazio]'),
   detalhe: document.querySelector('[data-detalhe]'),
+  indice: document.querySelector('[data-indice]'),
+  backup: document.querySelector('[data-backup]'),
   detArquivo: document.querySelector('[data-det-arquivo]'),
   detEtiqueta: document.querySelector('[data-det-etiqueta]'),
   detConfianca: document.querySelector('[data-det-confianca]'),
@@ -298,6 +300,14 @@ el.busca.addEventListener('input', (evento) => {
 /** O watchdog rodando de verdade: cada arquivo novo aparece sozinho. */
 function ouvirNovidades() {
   const fonte = new EventSource('api/eventos');
+  const indicador = el.vigia.closest('.lateral__vigia');
+
+  const situacao = (texto, ativo) => {
+    el.vigia.textContent = texto;
+    indicador.dataset.ativo = ativo ? 'sim' : 'nao';
+  };
+
+  fonte.onopen = () => situacao('watchdog ativo', true);
 
   fonte.onmessage = (evento) => {
     const documento = JSON.parse(evento.data);
@@ -305,16 +315,27 @@ function ouvirNovidades() {
     carregar();
   };
 
-  fonte.onerror = () => {
-    el.vigia.textContent = 'watchdog desconectado';
-    el.vigia.closest('.lateral__vigia').dataset.ativo = 'nao';
-    fonte.close();
-  };
+  // Sem close() aqui de propósito: o EventSource volta a tentar sozinho, e
+  // fechá-lo na primeira falha deixaria a tela morta até alguém recarregar a
+  // página. Uma queda de conexão é um contratempo, não o fim do programa.
+  fonte.onerror = () => situacao('reconectando…', false);
 }
 
 /* ------------------------------------------------------------- início */
 
 modo = await detectarModo();
+
+if (modo === 'real') {
+  // A barra lateral passa a descrever esta instalação, e não o protótipo: a
+  // pasta que está mesmo sendo vigiada, o índice que a busca está usando e se
+  // há backup configurado. Anunciar "sincronizado" sem backup seria mentira.
+  const servidor = estadoDoServidor() ?? {};
+  if (servidor.pasta) estado.pasta = servidor.pasta;
+  if (servidor.busca) el.indice.textContent = servidor.busca;
+
+  el.backup.textContent = servidor.backup ? 'sincronizado' : 'não configurado';
+  el.backup.classList.toggle('lateral__ok', Boolean(servidor.backup));
+}
 
 if (modo === 'demo') {
   // Sem backend não há pasta sendo observada — dizer "watchdog ativo" seria

@@ -7,12 +7,17 @@
 
 const TEMPO_LIMITE = 800;
 
+// O que /api/estado respondeu, guardado para quem precisar depois: a pasta que
+// está sendo monitorada, o índice de busca em uso, se há backup configurado.
+let estadoServidor = null;
+
 export async function detectarModo() {
   try {
     const resposta = await fetch('api/estado', {
       signal: AbortSignal.timeout(TEMPO_LIMITE),
     });
     if (resposta.ok) {
+      estadoServidor = await resposta.json();
       document.body.dataset.modo = 'real';
       return 'real';
     }
@@ -23,6 +28,9 @@ export async function detectarModo() {
   document.body.dataset.modo = 'demo';
   return 'demo';
 }
+
+/** O que o servidor informou sobre si, ou null em modo demonstração. */
+export const estadoDoServidor = () => estadoServidor;
 
 /** Espera `ms`. Usado pelos roteiros de demonstração. */
 export const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
