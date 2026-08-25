@@ -55,17 +55,30 @@ def _extrair_imagem(caminho: Path) -> str:
         return pytesseract.image_to_string(imagem, lang="por").strip()
 
 
-def extrair_texto(caminho: Path) -> str:
-    """Retorna o texto do documento conforme a extensao do arquivo."""
+def extrair_com_origem(caminho: Path) -> tuple[str, str]:
+    """Texto do documento e uma descricao de como ele foi obtido.
+
+    A origem vai para a tela: saber que um documento veio de OCR e nao da
+    camada de texto de um PDF muda o quanto se confia no que foi lido.
+    """
     extensao = caminho.suffix.lower()
 
     if extensao in EXTENSOES_TEXTO:
-        return _extrair_texto_simples(caminho)
+        return _extrair_texto_simples(caminho), "arquivo de texto"
+
     if extensao == ".pdf":
         texto = _extrair_pdf(caminho)
+        if texto:
+            return texto, "PDF com texto embutido"
         # PDF escaneado nao tem camada de texto — o OCR entra como fallback.
-        return texto if texto else ""
+        return "", "PDF sem camada de texto"
+
     if extensao in EXTENSOES_IMAGEM:
-        return _extrair_imagem(caminho)
+        return _extrair_imagem(caminho), "imagem — OCR"
 
     raise ExtracaoIndisponivel(f"formato nao suportado: {extensao}")
+
+
+def extrair_texto(caminho: Path) -> str:
+    """Retorna o texto do documento conforme a extensao do arquivo."""
+    return extrair_com_origem(caminho)[0]
