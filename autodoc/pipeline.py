@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .catalogo import PASTA_REVISAO, Catalogo, Ficha
+from .catalogo import PASTA_DUPLICADOS, PASTA_REVISAO, Catalogo, Ficha
 from .classificador import NAO_CLASSIFICADO, ROTULOS, Classificacao, classificar
 from .config import Config
 from .datas import data_de_modificacao, extrair_data_rotulada, extrair_datas
@@ -73,9 +73,21 @@ class Pipeline:
         if caminho.suffix.lower() not in self.config.extensoes:
             return Resultado(caminho, ignorado="extensao nao monitorada")
 
-        assinatura = hash_arquivo(caminho)
+        try:
+            assinatura = hash_arquivo(caminho)
+        except OSError as erro:
+            logger.warning("nao foi possivel ler %s: %s", caminho.name, erro)
+            return Resultado(caminho, ignorado=f"arquivo ilegivel: {erro}")
+
         if self.catalogo.ja_indexado(assinatura):
-            return Resultado(caminho, ignorado="ja indexado")
+            # Sair da pasta de entrada mesmo assim. Deixado ali, o arquivo seria
+            # reexaminado a cada abertura do programa e a pasta nunca esvaziaria
+            # — e quem largou a copia acharia que o AutoDoc simplesmente ignorou
+            # o arquivo. Copia nao se apaga: o original e de quem usa.
+            destino = self._recolher(caminho, PASTA_DUPLICADOS)
+            return Resultado(
+                caminho, ignorado="ja indexado", destino=destino,
+            )
 
         tamanho = caminho.stat().st_size
         etapas = [
@@ -271,6 +283,18 @@ class Pipeline:
 
         return self.config.pasta_saida / classificacao.categoria / "sem-data"
 
+    def _recolher(self, caminho: Path, nome_pasta: str) -> Path | None:
+        """Tira o arquivo da pasta de entrada, sem arquiva-lo de fato."""
+        pasta = self.config.pasta_saida / nome_pasta
+        try:
+            pasta.mkdir(parents=True, exist_ok=True)
+            destino = self._nome_livre(pasta / caminho.name)
+            shutil.move(str(caminho), destino)
+            return destino
+        except OSError as erro:
+            logger.warning("nao foi possivel mover %s: %s", caminho.name, erro)
+            return None
+
     def _arquivar(
         self, caminho: Path, classificacao: Classificacao, data: str | None
     ) -> Path:
@@ -289,6 +313,12 @@ class Pipeline:
             return str(destino.parent) + "/"
 
     def _fazer_backup(self, destino: Path, classificacao: Classificacao) -> None:
+        """Copia para a pasta sincronizada. Falhar aqui nao invalida o resto.
+
+        A pasta de backup costuma ser do Drive ou do OneDrive, que ficam
+        indisponiveis sozinhos. O documento ja esta arquivado e fichado quando
+        isto roda — perder a copia e um aviso, nao um erro de processamento.
+        """
         if self.config.pasta_backup is None:
             return
         # Mesmo nome de pasta do arquivo principal, para o backup nao virar uma
@@ -298,9 +328,12 @@ class Pipeline:
             if classificacao.categoria == NAO_CLASSIFICADO
             else classificacao.categoria
         )
-        pasta = self.config.pasta_backup / nome
-        pasta.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(destino, self._nome_livre(pasta / destino.name))
+        try:
+            pasta = self.config.pasta_backup / nome
+            pasta.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(destino, self._nome_livre(pasta / destino.name))
+        except OSError as erro:
+            logger.warning("backup de %s falhou: %s", destino.name, erro)
 
     @staticmethod
     def _nome_livre(destino: Path) -> Path:

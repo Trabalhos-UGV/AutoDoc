@@ -273,11 +273,16 @@ class Catalogo:
         if not self.pasta_saida.exists():
             return []
 
+        # `_Duplicados/` fica de fora: e uma pilha de copias do que ja esta
+        # arquivado, e nao parte do arquivo. Fichar o que esta la faria o mesmo
+        # documento aparecer duas vezes na tela.
+        ignoradas = {PASTA_CATALOGO, PASTA_DUPLICADOS}
+
         achados = []
         for caminho in sorted(self.pasta_saida.rglob("*")):
             if not caminho.is_file() or caminho.name.startswith("."):
                 continue
-            if PASTA_CATALOGO in caminho.relative_to(self.pasta_saida).parts:
+            if ignoradas & set(caminho.relative_to(self.pasta_saida).parts):
                 continue
             achados.append(caminho)
         return achados
