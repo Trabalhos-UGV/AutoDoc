@@ -48,17 +48,36 @@ def _extrair_texto_simples(caminho: Path) -> str:
 
 
 def _leitor_pdf(caminho: Path):
+    """Abre o PDF, traduzindo qualquer defeito dele para `ExtracaoIndisponivel`.
+
+    O pypdf tem uma familia propria de excecoes (`PdfStreamError` para arquivo
+    truncado, por exemplo). Deixa-las escapar cruas derrubaria o observador da
+    pasta no primeiro PDF corrompido que alguem largasse ali — e um arquivo
+    ruim nao pode parar o programa de vigiar os outros.
+    """
     try:
         from pypdf import PdfReader
     except ImportError as erro:  # pragma: no cover - depende do ambiente
         raise ExtracaoIndisponivel("pypdf nao instalado (pip install pypdf)") from erro
-    return PdfReader(str(caminho))
+
+    try:
+        return PdfReader(str(caminho))
+    except OSError:
+        raise
+    except Exception as erro:
+        raise ExtracaoIndisponivel(f"PDF ilegível: {erro}") from erro
 
 
 def _extrair_pdf(caminho: Path) -> str:
     """O texto da camada de texto do PDF. Vazio quando o PDF e digitalizado."""
     leitor = _leitor_pdf(caminho)
-    paginas = [pagina.extract_text() or "" for pagina in leitor.pages]
+    paginas = []
+    for pagina in leitor.pages:
+        try:
+            paginas.append(pagina.extract_text() or "")
+        except Exception:
+            # Uma pagina defeituosa nao invalida as outras.
+            continue
     return "\n".join(paginas).strip()
 
 
@@ -99,7 +118,11 @@ def texto_da_imagem(imagem) -> str:
 
 def _extrair_imagem(caminho: Path) -> str:
     _, Image = _motor_ocr()
-    with Image.open(caminho) as imagem:
+    try:
+        abrir = Image.open(caminho)
+    except Exception as erro:
+        raise ExtracaoIndisponivel(f"imagem ilegível: {erro}") from erro
+    with abrir as imagem:
         return texto_da_imagem(imagem)
 
 
