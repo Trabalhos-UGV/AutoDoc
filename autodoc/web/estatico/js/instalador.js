@@ -39,6 +39,10 @@ const estado = {
   concluido: false,
   log: [],
   pasta: PASTA_MONITORADA,
+  pastaSaida: '',
+  // 'pronto' é onde a tela espera a pasta ser confirmada; a demonstração pula
+  // direto para 'instalando', porque lá não há pasta de verdade para escolher.
+  fase: 'pronto',
 };
 
 let modo = 'demo';
@@ -67,6 +71,9 @@ function montarEtapas() {
 }
 
 function estadoDaEtapa(indice) {
+  // Antes de começar nenhuma etapa está em andamento: marcar a primeira como
+  // 'agora' faria a tela parecer que já está instalando.
+  if (estado.fase === 'pronto') return 'espera';
   if (estado.concluido || indice < estado.indice) return 'pronto';
   return indice === estado.indice ? 'agora' : 'espera';
 }
@@ -74,13 +81,16 @@ function estadoDaEtapa(indice) {
 function desenhar() {
   const total = estado.etapas.length;
 
-  el.fase.textContent = estado.concluido
-    ? 'Instalação concluída'
-    : 'Instalando · não feche esta janela';
-
-  el.etapaAtual.textContent = estado.concluido
-    ? 'AutoDoc está pronto para usar'
-    : estado.etapas[estado.indice].titulo;
+  if (estado.fase === 'pronto') {
+    el.fase.textContent = 'Pronto para instalar';
+    el.etapaAtual.textContent = estado.pasta;
+  } else if (estado.concluido) {
+    el.fase.textContent = 'Instalação concluída';
+    el.etapaAtual.textContent = 'AutoDoc está pronto para usar';
+  } else {
+    el.fase.textContent = 'Instalando · não feche esta janela';
+    el.etapaAtual.textContent = estado.etapas[estado.indice].titulo;
+  }
 
   const percentual = Math.round(estado.progresso);
   el.percentual.textContent = `${percentual}%`;
@@ -117,13 +127,27 @@ function desenhar() {
     })
   );
 
-  el.nota.textContent = estado.concluido
-    ? `Pasta monitorada: ${estado.pasta}`
-    : `Etapa ${estado.indice + 1} de ${total}`;
+  if (estado.fase === 'pronto') {
+    el.nota.textContent = estado.pastaSaida
+      ? `Documentos organizados em ${estado.pastaSaida}`
+      : 'Escolha a pasta que o AutoDoc vai vigiar';
+  } else if (estado.concluido) {
+    el.nota.textContent = `Pasta monitorada: ${estado.pasta}`;
+  } else {
+    el.nota.textContent = `Etapa ${estado.indice + 1} de ${total}`;
+  }
 
-  el.alterar.hidden = !estado.concluido;
-  el.concluir.disabled = !estado.concluido;
-  el.concluir.textContent = estado.concluido ? 'Abrir o AutoDoc' : 'Aguarde…';
+  // O botão de escolher pasta só faz sentido quando nada está rodando: no meio
+  // da instalação trocar a pasta debaixo das etapas não levaria a lugar bom.
+  const parado = estado.fase === 'pronto' || estado.concluido;
+  el.alterar.hidden = !parado;
+  el.alterar.textContent =
+    estado.fase === 'pronto' ? 'Escolher pasta' : 'Alterar pasta';
+  el.reiniciar.hidden = estado.fase === 'pronto';
+
+  el.concluir.disabled = !parado;
+  el.concluir.textContent =
+    estado.fase === 'pronto' ? 'Instalar' : estado.concluido ? 'Abrir o AutoDoc' : 'Aguarde…';
 }
 
 function registrar(mensagem, indiceEtapa) {
@@ -136,6 +160,7 @@ function registrar(mensagem, indiceEtapa) {
 async function motorDemonstracao() {
   const minha = ++execucao;
   const total = estado.etapas.length;
+  estado.fase = 'instalando';
 
   for (let i = 0; i < total; i += 1) {
     if (minha !== execucao) return; // reiniciaram no meio
@@ -161,8 +186,14 @@ async function motorDemonstracao() {
   desenhar();
 }
 
-/** Motor real: consome os eventos que o instalador emite enquanto trabalha. */
+/** Motor real: consome os eventos que o instalador emite enquanto trabalha.
+
+   Só é chamado pelo botão "Instalar". Antes ele disparava assim que a página
+   carregava, e a instalação gravava a pasta padrão no config.json antes de
+   alguém ter a chance de escolher outra — o botão de escolher pasta só aparecia
+   no fim, quando já não adiantava. */
 function motorReal() {
+  estado.fase = 'instalando';
   const fonte = new EventSource('api/eventos');
 
   fonte.onmessage = (evento) => {
@@ -193,6 +224,7 @@ function motorReal() {
     fonte.close();
   };
 
+  desenhar();
   fetch('api/instalar', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -213,6 +245,13 @@ el.reiniciar.addEventListener('click', () => {
 });
 
 el.concluir.addEventListener('click', async () => {
+  // Antes de instalar, este é o botão "Instalar".
+  if (estado.fase === 'pronto') {
+    Object.assign(estado, { indice: 0, progresso: 0, concluido: false, log: [] });
+    iniciarMotor();
+    return;
+  }
+
   if (modo !== 'real') {
     window.location.href = 'app.html';
     return;
@@ -238,11 +277,22 @@ el.alterar.addEventListener('click', async () => {
   }
   try {
     const resposta = await fetch('api/escolher-pasta', { method: 'POST' });
-    const { caminho } = await resposta.json();
-    if (caminho) {
-      estado.pasta = caminho;
-      desenhar();
+    const { caminho, pasta_saida: pastaSaida } = await resposta.json();
+    if (!caminho) return;
+
+    estado.pasta = caminho;
+    if (pastaSaida) estado.pastaSaida = pastaSaida;
+
+    // Trocar a pasta depois de instalado exige reexecutar as etapas: só mudar
+    // o texto da tela deixaria o AutoDoc vigiando a pasta antiga, que é
+    // exatamente o defeito que fazia a janela abrir vazia. As etapas são
+    // idempotentes, então repetir é seguro.
+    if (estado.concluido) {
+      Object.assign(estado, { indice: 0, progresso: 0, concluido: false, log: [] });
+      iniciarMotor();
+      return;
     }
+    desenhar();
   } catch {
     /* o seletor nativo não abriu; a pasta atual continua valendo */
   }
@@ -258,10 +308,16 @@ if (modo === 'real') {
   // — e gravaria isso no config.json como se fosse a pasta a monitorar.
   const servidor = estadoDoServidor() ?? {};
   if (servidor.pasta) estado.pasta = servidor.pasta;
+  if (servidor.pasta_saida) estado.pastaSaida = servidor.pasta_saida;
   if (servidor.versao) el.tituloJanela.textContent = `Instalador AutoDoc — ${servidor.versao}`;
+} else {
+  el.tituloJanela.textContent = `Instalador AutoDoc — ${VERSAO}`;
 }
 
-if (modo !== 'real') el.tituloJanela.textContent = `Instalador AutoDoc — ${VERSAO}`;
 montarEtapas();
 desenhar();
-iniciarMotor();
+
+// A demonstração roda sozinha, como no protótipo: não há pasta de verdade para
+// confirmar. Em modo real quem começa é a pessoa, depois de ver qual pasta vai
+// ser vigiada.
+if (modo !== 'real') iniciarMotor();

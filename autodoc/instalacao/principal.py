@@ -186,7 +186,12 @@ class RotasInstalador(Rotas):
             return self._json({"iniciado": True})
 
         if rota == "/api/escolher-pasta":
-            return self._json({"caminho": self.instalador.escolher_pasta()})
+            # A saida acompanha a entrada, entao a tela precisa das duas para
+            # dizer onde os documentos vao ficar.
+            return self._json({
+                "caminho": self.instalador.escolher_pasta(),
+                "pasta_saida": str(self.instalador.pasta_saida),
+            })
 
         if rota == "/api/concluir":
             return self._json({"url": self.instalador.concluir()})
