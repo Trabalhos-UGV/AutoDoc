@@ -359,7 +359,7 @@ class Catalogo:
 
     # ---------------------------------------------------------- consulta
 
-    def _como_dict(self, ficha: Ficha) -> dict:
+    def como_dict(self, ficha: Ficha) -> dict:
         """A ficha no formato que o resto do programa consome.
 
         `caminho` sai **absoluto**: e guardado relativo para o catalogo ser
@@ -376,7 +376,7 @@ class Catalogo:
             if categoria is None or f.categoria == categoria
         ]
         fichas.sort(key=_ordem, reverse=True)
-        return [self._como_dict(f) for f in fichas[:limite]]
+        return [self.como_dict(f) for f in fichas[:limite]]
 
     def buscar(self, termo: str, limite: int = 20) -> list[dict]:
         """Documentos que casam com todas as palavras digitadas.
@@ -398,7 +398,7 @@ class Catalogo:
 
         fichas = [self._fichas[i] for i in ids or ()]
         fichas.sort(key=_ordem, reverse=True)
-        return [self._como_dict(f) for f in fichas[:limite]]
+        return [self.como_dict(f) for f in fichas[:limite]]
 
     def por_id(self, identificador: int) -> Ficha | None:
         """A ficha de um documento — o que as acoes da tela precisam achar."""

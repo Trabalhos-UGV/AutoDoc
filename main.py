@@ -14,8 +14,8 @@ import logging
 import sys
 
 from autodoc import __version__
+from autodoc.catalogo import Catalogo
 from autodoc.config import Config
-from autodoc.db import Banco
 from autodoc.monitor import monitorar, processar_pendentes
 from autodoc.pipeline import Pipeline
 from autodoc.web import janela
@@ -52,7 +52,7 @@ def imprimir(linhas) -> None:
         print(f'       {linha["caminho"]}')
 
 
-def abrir_aplicativo(config: Config, banco: Banco, porta: int) -> int:
+def abrir_aplicativo(config: Config, catalogo: Catalogo, porta: int) -> int:
     """Sobe o servidor local e abre a janela do AutoDoc.
 
     O servidor fica em threads e a janela toma a thread principal, porque no
@@ -60,7 +60,7 @@ def abrir_aplicativo(config: Config, banco: Banco, porta: int) -> int:
     o servidor e o monitoramento vao junto — nao faz sentido continuar
     vigiando a pasta com o programa fechado.
     """
-    servidor = Servidor(config, banco, Pipeline(config, banco), porta)
+    servidor = Servidor(config, catalogo, Pipeline(config, catalogo), porta)
     url = servidor.iniciar()
 
     print(f"AutoDoc v{__version__} — monitorando {config.pasta_entrada}")
@@ -77,22 +77,22 @@ def main(argv: list[str] | None = None) -> int:
     args = montar_parser().parse_args(argv)
     config = Config.carregar()
     config.preparar_pastas()
-    banco = Banco(config.banco)
+    catalogo = Catalogo(config.pasta_saida)
 
     comando = args.comando or "app"
 
     if comando == "app":
-        return abrir_aplicativo(config, banco, args.porta)
+        return abrir_aplicativo(config, catalogo, args.porta)
 
     if comando == "buscar":
-        imprimir(banco.buscar(args.termo, args.limite))
+        imprimir(catalogo.buscar(args.termo, args.limite))
         return 0
 
     if comando == "listar":
-        imprimir(banco.listar(args.limite))
+        imprimir(catalogo.listar(args.limite))
         return 0
 
-    pipeline = Pipeline(config, banco)
+    pipeline = Pipeline(config, catalogo)
     pendentes = processar_pendentes(pipeline)
     if pendentes:
         print(f"{pendentes} documento(s) pendente(s) processado(s)")
