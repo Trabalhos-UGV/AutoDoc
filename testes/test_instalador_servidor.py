@@ -241,6 +241,12 @@ class TestRotas(unittest.TestCase):
         with mock.patch.object(self.instalador, "instalar"):
             self.assertTrue(self.post("/api/instalar", cru=b"")["iniciado"])
 
+    def test_serve_os_arquivos_da_tela(self):
+        """O CSS e o JS da tela saem pelo mesmo servidor."""
+        with urllib.request.urlopen(self.url + "/js/instalador.js") as resposta:
+            corpo = resposta.read().decode("utf-8")
+        self.assertIn("motorReal", corpo)
+
     def test_rota_de_api_desconhecida_da_404(self):
         for chamada in (lambda: self.get("/api/inventada"),
                         lambda: self.post("/api/inventada")):

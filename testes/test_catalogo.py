@@ -77,6 +77,15 @@ class TestGravacao(BaseCatalogo):
         self.assertEqual(len(relido), 1)
         self.assertIn("ilegivel", registro.output[0])
 
+    def test_linha_em_branco_no_caderno_e_pulada(self):
+        """Um editor de texto costuma deixar linha vazia no fim do arquivo."""
+        self.catalogo.inserir(ficha())
+        caderno = self.saida / PASTA_CATALOGO / NOME_CATALOGO
+        with caderno.open("a", encoding="utf-8") as arquivo:
+            arquivo.write("\n   \n")
+
+        self.assertEqual(len(self.recarregar()), 1)
+
     def test_texto_gigante_e_truncado(self):
         from autodoc.catalogo import LIMITE_TEXTO
         guardada = ficha(texto="a" * (LIMITE_TEXTO + 5000))

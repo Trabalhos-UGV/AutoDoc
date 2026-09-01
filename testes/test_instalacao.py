@@ -257,6 +257,26 @@ class TestConfigurarOcr(BaseInstalacao):
         self.assertIn("desativado", detalhe)
 
 
+class TestExecutarDeVerdade(BaseInstalacao):
+    """As seis etapas reais, do começo ao fim, numa pasta temporária."""
+
+    def test_a_instalacao_inteira_termina_com_a_pasta_gravada(self):
+        # O pip e o venv de verdade levariam minutos e dependeriam de rede.
+        with mock.patch.object(instalador, "instalar_dependencias",
+                               lambda estado: iter(["pip dublado"])):
+            instalacao = instalador.Instalacao(self.escolhida)
+            estados = list(instalacao.executar())
+
+        self.assertIsNone(instalacao.erro)
+        self.assertTrue(instalacao.concluido)
+        self.assertEqual(estados[-1]["progresso"], 100.0)
+
+        # as duas últimas etapas receberam a pasta escolhida
+        gravado = Config.carregar(self.config_json)
+        self.assertEqual(gravado.pasta_entrada, self.escolhida)
+        self.assertTrue((self.escolhida.parent / "organizados").is_dir())
+
+
 class TestExecutar(BaseInstalacao):
     """O gerador de estados que alimenta a tela."""
 
