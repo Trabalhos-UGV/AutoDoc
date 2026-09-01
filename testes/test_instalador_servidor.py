@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 from autodoc import config as modulo_config
+from autodoc.config import Config
 from autodoc.instalacao import atalho, instalador as modulo_instalador
 from autodoc.instalacao.principal import Instalador, RotasInstalador
 from autodoc.web.servidor import ServidorHTTP
@@ -31,6 +32,13 @@ class BaseInstalador(unittest.TestCase):
         self.addCleanup(self._temporaria.cleanup)
 
         self.config_json = self.base / "config.json"
+        # O config precisa **existir** apontando para a pasta temporária. Sem
+        # isto, todo `Config.carregar()` cai nos padrões — que são as pastas de
+        # documentos de quem está rodando os testes — e `concluir()`, que relê o
+        # config do disco, criava pastas de verdade na casa da pessoa.
+        Config(pasta_entrada=self.base / "entrada",
+               pasta_saida=self.base / "organizados").salvar(self.config_json)
+
         self.enterContext(mock.patch.object(
             modulo_config, "CAMINHO_CONFIG", self.config_json))
         self.enterContext(mock.patch.object(
@@ -165,6 +173,8 @@ class TestRotas(unittest.TestCase):
         cls._temporaria = tempfile.TemporaryDirectory()
         base = Path(cls._temporaria.name)
         cls.config_json = base / "config.json"
+        Config(pasta_entrada=base / "entrada",
+               pasta_saida=base / "organizados").salvar(cls.config_json)
 
         cls._remendos = [
             mock.patch.object(modulo_config, "CAMINHO_CONFIG", cls.config_json),
