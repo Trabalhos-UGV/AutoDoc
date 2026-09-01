@@ -18,6 +18,30 @@ logger = logging.getLogger(__name__)
 INTERVALO_ESTABILIDADE = 0.5
 TENTATIVAS_ESTABILIDADE = 20
 
+# Sufixos de arquivo pela metade. Navegador e programa de escritorio escrevem
+# num arquivo temporario e so depois renomeiam para o nome final — processar o
+# temporario arquivaria um pedaco do documento e ainda deixaria o de verdade
+# parecendo repetido.
+SUFIXOS_TEMPORARIOS = (".crdownload", ".part", ".partial", ".download", ".tmp", ".swp")
+
+# Prefixos do mesmo problema: o Office abre "~$relatorio.docx" ao lado do
+# arquivo, e o macOS espalha "._" em pen drive.
+PREFIXOS_TEMPORARIOS = ("~$", "._")
+
+
+def deve_ignorar(caminho: Path) -> bool:
+    """Diz se o arquivo nao e um documento de ninguem.
+
+    Arquivo oculto, temporario de download ou de programa de escritorio. Sem
+    isto o `.DS_Store` do macOS entraria na fila a cada abertura de pasta.
+    """
+    nome = caminho.name
+    return (
+        nome.startswith(".")
+        or nome.startswith(PREFIXOS_TEMPORARIOS)
+        or caminho.suffix.lower() in SUFIXOS_TEMPORARIOS
+    )
+
 
 def aguardar_arquivo_pronto(caminho: Path) -> bool:
     """Espera o arquivo parar de crescer (copia/download em andamento)."""
@@ -34,12 +58,30 @@ def aguardar_arquivo_pronto(caminho: Path) -> bool:
 
 
 def processar_pendentes(pipeline: Pipeline) -> int:
-    """Processa o que ja estava na pasta antes do monitor subir."""
+    """Processa o que ja estava na pasta antes do monitor subir.
+
+    Cada arquivo e tratado por conta propria: um documento problematico nao
+    pode impedir o AutoDoc de abrir, que e o que acontecia quando a excecao
+    subia daqui — o programa inteiro deixava de subir por causa de um arquivo.
+    """
+    pasta = pipeline.config.pasta_entrada
+    if not pasta.is_dir():
+        logger.warning("pasta monitorada nao existe: %s", pasta)
+        return 0
+
     total = 0
-    for caminho in sorted(pipeline.config.pasta_entrada.iterdir()):
-        if caminho.is_file() and not caminho.name.startswith("."):
+    for caminho in sorted(pasta.iterdir()):
+        if not caminho.is_file() or deve_ignorar(caminho):
+            continue
+        # Um arquivo ainda sendo copiado quando o programa abre tem que ser
+        # esperado aqui tambem, e nao so no caminho do watchdog.
+        if not aguardar_arquivo_pronto(caminho):
+            continue
+        try:
             if pipeline.processar(caminho).sucesso:
                 total += 1
+        except Exception:
+            logger.exception("falha ao processar %s", caminho.name)
     return total
 
 
@@ -70,12 +112,19 @@ def criar_observador(pipeline: Pipeline, ao_processar=None):
             if evento.is_directory:
                 return
             caminho = Path(evento.dest_path if destino else evento.src_path)
-            if caminho.name.startswith("."):
+            if deve_ignorar(caminho):
                 return
             if not aguardar_arquivo_pronto(caminho):
                 return
 
-            resultado = pipeline.processar(caminho)
+            try:
+                resultado = pipeline.processar(caminho)
+            except Exception:
+                # O observador precisa sobreviver ao arquivo que o derrubaria:
+                # perder um documento e ruim, parar de vigiar a pasta e pior.
+                logger.exception("falha ao processar %s", caminho.name)
+                return
+
             if resultado.sucesso and ao_processar:
                 # Um erro no callback nao pode derrubar o observador: o
                 # monitoramento e o que faz o programa existir.

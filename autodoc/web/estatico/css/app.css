@@ -305,12 +305,22 @@
 .linha__rotulo { display: none; }
 
 .tabela__vazio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
   margin: 0;
-  padding: 28px 17px;
+  padding: 34px 17px;
   background: var(--ad-linha);
   font-size: 13.5px;
   color: var(--ad-apagado);
   text-align: center;
+}
+
+.tabela__vazio p {
+  margin: 0;
+  max-width: 46ch;
+  line-height: 1.6;
 }
 
 /* -------------------------------------------------------- detalhe */
@@ -496,4 +506,63 @@
 
   .numeros { grid-template-columns: 1fr; }
   .busca__dica { display: none; }
+}
+
+
+/* --------------------------------------------------------- aviso */
+
+/* Quando a API nao responde, a tela precisa dizer isso. Antes ela mostrava
+   uma tabela vazia e nada mais, indistinguivel de "ainda nao ha documento" —
+   e as duas situacoes pedem coisas bem diferentes de quem esta olhando.
+   Usa o acento, o mesmo amarelo que marca o documento a revisar. */
+.aviso {
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid var(--ad-acento-linha);
+  border-left-width: 3px;
+  border-radius: var(--ad-raio-min);
+  background: var(--ad-acento-fraco);
+  color: var(--ad-acento-claro);
+  font-family: var(--ad-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------- acoes do detalhe */
+
+.detalhe__acoes {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 0;
+  flex-wrap: wrap;
+}
+
+/* A correcao manual e o que impede o painel de ser so uma justificativa:
+   quem le a explicacao e discorda dela precisa poder fazer alguma coisa. */
+.detalhe__corrigir-texto {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ad-apagado);
+}
+
+.detalhe__corrigir-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detalhe__corrigir-campo select {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--ad-texto);
+  background: var(--ad-fundo);
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: var(--ad-raio-min);
+}
+
+.detalhe__corrigir-campo select:focus-visible {
+  outline: 2px solid var(--ad-acento);
+  outline-offset: 1px;
 }

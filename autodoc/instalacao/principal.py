@@ -19,8 +19,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .. import __version__
+from ..catalogo import Catalogo
 from ..config import Config
-from ..db import Banco
 from ..pipeline import Pipeline
 from ..web import janela
 from ..web.servidor import ESTATICO, Rotas, ServidorHTTP
@@ -42,6 +42,7 @@ class Instalador:
     def __init__(self) -> None:
         config = Config.carregar()
         self.pasta_entrada = config.pasta_entrada
+        self.pasta_saida = config.pasta_saida
         self.instalacao: Instalacao | None = None
         self.ouvintes: list[queue.Queue] = []
         self.trava = threading.Lock()
@@ -74,7 +75,7 @@ class Instalador:
     def instalar(self, pasta_entrada: str | None = None) -> None:
         """Comeca a instalacao numa thread, para a tela nao congelar."""
         if pasta_entrada:
-            self.pasta_entrada = Path(pasta_entrada).expanduser()
+            self._apontar(Path(pasta_entrada).expanduser())
 
         if self.instalacao and not self.instalacao.concluido:
             return  # ja esta rodando
@@ -87,8 +88,23 @@ class Instalador:
 
         threading.Thread(target=rodar, daemon=True).start()
 
+    def _apontar(self, pasta_entrada: Path) -> None:
+        """Registra a pasta escolhida — em memoria **e no config.json**.
+
+        Sem gravar, escolher outra pasta so mudava o texto da tela: a instalacao
+        seguia usando a pasta anterior e o AutoDoc subia vigiando o lugar
+        errado, com a tela mostrando o certo. Era o defeito que fazia a janela
+        abrir vazia depois de apontar para uma pasta pessoal.
+        """
+        self.pasta_entrada = pasta_entrada
+        config = Config.carregar()
+        config.pasta_entrada = pasta_entrada
+        config.pasta_saida = config.saida_ao_lado()
+        config.salvar()
+        self.pasta_saida = config.pasta_saida
+
     def escolher_pasta(self) -> str | None:
-        """Abre o seletor de pastas do proprio sistema."""
+        """Abre o seletor de pastas do proprio sistema e guarda a escolha."""
         if _janela is None:
             return None
         try:
@@ -102,7 +118,7 @@ class Instalador:
 
         if not escolha:
             return None
-        self.pasta_entrada = Path(escolha[0])
+        self._apontar(Path(escolha[0]))
         return str(self.pasta_entrada)
 
     def concluir(self) -> str:
@@ -112,9 +128,9 @@ class Instalador:
 
             config = Config.carregar()
             config.preparar_pastas()
-            banco = Banco(config.banco)
+            catalogo = Catalogo(config.pasta_saida)
             self.servidor_app = Servidor(
-                config, banco, Pipeline(config, banco), PORTA_APP
+                config, catalogo, Pipeline(config, catalogo), PORTA_APP
             )
             self.servidor_app.iniciar()
 
@@ -129,15 +145,6 @@ class RotasInstalador(Rotas):
         # Pula o __init__ de Rotas, que espera um Servidor de aplicativo.
         super(Rotas, self).__init__(*args, directory=str(ESTATICO), **kwargs)
 
-    def _corpo(self) -> dict:
-        tamanho = int(self.headers.get("Content-Length") or 0)
-        if not tamanho:
-            return {}
-        try:
-            return json.loads(self.rfile.read(tamanho))
-        except json.JSONDecodeError:
-            return {}
-
     def do_GET(self) -> None:  # noqa: N802 - nome exigido pela biblioteca
         rota = urlparse(self.path).path
 
@@ -150,6 +157,7 @@ class RotasInstalador(Rotas):
                 "modo": "real",
                 "versao": __version__,
                 "pasta": str(self.instalador.pasta_entrada),
+                "pasta_saida": str(self.instalador.pasta_saida),
             })
 
         if rota == "/api/eventos":
@@ -169,7 +177,12 @@ class RotasInstalador(Rotas):
             return self._json({"iniciado": True})
 
         if rota == "/api/escolher-pasta":
-            return self._json({"caminho": self.instalador.escolher_pasta()})
+            # A saida acompanha a entrada, entao a tela precisa das duas para
+            # dizer onde os documentos vao ficar.
+            return self._json({
+                "caminho": self.instalador.escolher_pasta(),
+                "pasta_saida": str(self.instalador.pasta_saida),
+            })
 
         if rota == "/api/concluir":
             return self._json({"url": self.instalador.concluir()})

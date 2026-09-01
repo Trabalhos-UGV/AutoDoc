@@ -11,7 +11,7 @@ Sistema de organização automática de documentos — monitora uma pasta, lê o
 
 ## Resumo da Automação Proposta
 
-O AutoDoc resolve o problema da organização manual de documentos (contas, notas fiscais, comprovantes, contratos), que é lenta, repetitiva e não permite busca por conteúdo. O sistema monitora uma pasta definida pelo usuário e, ao detectar um novo arquivo, extrai o texto automaticamente — usando OCR quando o documento é uma imagem ou digitalização. Em seguida, classifica o documento por regras de palavras-chave (por exemplo, "kWh" indica conta de luz; "CNPJ" + "total" indica nota fiscal), extrai a data e armazena tudo em um banco de dados local pesquisável. Opcionalmente, o documento organizado também é copiado para uma pasta sincronizada, gerando backup automático. Com isso, basta digitar algo como "conta de luz março" para encontrar o arquivo na hora.
+O AutoDoc resolve o problema da organização manual de documentos (contas, notas fiscais, comprovantes, contratos), que é lenta, repetitiva e não permite busca por conteúdo. O sistema monitora uma pasta definida pelo usuário e, ao detectar um novo arquivo, extrai o texto automaticamente — usando OCR quando o documento é uma imagem ou digitalização. Em seguida, classifica o documento por regras de palavras-chave (por exemplo, "kWh" indica conta de luz; "CNPJ" + "total" indica nota fiscal), extrai a data e arquiva o documento numa pasta organizada e pesquisável. Opcionalmente, o documento organizado também é copiado para uma pasta sincronizada, gerando backup automático. Com isso, basta digitar algo como "conta de luz março" para encontrar o arquivo na hora.
 
 ## Tecnologias e Ferramentas Utilizadas
 
@@ -19,7 +19,7 @@ O AutoDoc resolve o problema da organização manual de documentos (contas, nota
 - **watchdog** — monitoramento da pasta de entrada
 - **Tesseract OCR** — leitura de texto em imagens e documentos escaneados (opcional)
 - **regex** — identificação e extração de datas
-- **SQLite** — armazenamento e busca dos documentos processados
+- **Biblioteca padrão do Python** — o catálogo dos documentos e o índice de busca, sem banco de dados
 - **pywebview** — janela nativa do aplicativo, usando o motor do próprio sistema
 - **pathlib** — compatibilidade de caminhos entre Windows, macOS e Linux
 
@@ -41,12 +41,16 @@ cd AutoDoc
 python3 instalar.py
 ```
 
-O `instalar.py` abre o **instalador gráfico**, em janela própria, e executa seis
-etapas de verdade: procura o Python da máquina, cria o ambiente virtual, instala
-as dependências, procura o Tesseract, cria o banco com o índice de busca e
-registra a pasta que será monitorada. Na última etapa ele cria o atalho do
-sistema — um `AutoDoc.app` no macOS, um atalho no menu Iniciar no Windows, um
-`.desktop` no Linux.
+O `instalar.py` abre o **instalador gráfico**, em janela própria. A tela primeiro
+mostra qual pasta será vigiada e deixa escolher outra; a instalação só começa
+quando você confirma. Aí ela executa seis etapas de verdade: procura o Python da
+máquina, cria o ambiente virtual, instala as dependências, procura o Tesseract,
+prepara a pasta organizada e registra a pasta monitorada. Na última etapa cria o
+atalho do sistema — um `AutoDoc.app` no macOS, um atalho no menu Iniciar no
+Windows, um `.desktop` no Linux.
+
+Trocar a pasta depois de instalado reexecuta as etapas, que são idempotentes: a
+escolha vale de verdade, e não só na tela.
 
 A partir daí o AutoDoc abre pelo ícone, como qualquer programa instalado.
 
@@ -64,19 +68,26 @@ python main.py app
 
 ### Configuração
 
-Copie `config.example.json` para `config.json` na raiz do projeto e ajuste os caminhos:
+O instalador grava o `config.json` com a pasta que você escolher. Para ajustar à
+mão, copie `config.example.json` para `config.json` na raiz do projeto:
 
 ```json
 {
   "pasta_entrada": "~/Documentos/AutoDoc/entrada",
   "pasta_saida": "~/Documentos/AutoDoc/organizados",
   "pasta_backup": null,
-  "banco": "autodoc.db",
   "extensoes": [".pdf", ".png", ".jpg", ".jpeg", ".txt"]
 }
 ```
 
-Se `config.json` não existir, o AutoDoc usa pastas padrão dentro do próprio projeto (`entrada/` e `organizados/`). Defina `pasta_backup` com uma pasta sincronizada (Drive, OneDrive) para gerar o backup automático; deixe `null` para desativar.
+Sem `config.json`, o AutoDoc vigia `~/Documentos/AutoDoc/entrada` — fora do
+repositório, como convém a um programa instalado. Omitir `pasta_saida` faz a
+pasta organizada nascer ao lado da vigiada. Defina `pasta_backup` com uma pasta
+sincronizada (Drive, OneDrive) para gerar o backup automático; deixe `null` para
+desativar.
+
+Não há caminho de banco de dados para configurar: escolher a pasta de saída já é
+escolher onde ficam os dados.
 
 ### Execução
 
@@ -90,8 +101,25 @@ python main.py listar             # últimos documentos processados
 ```
 
 Com o AutoDoc aberto, qualquer arquivo colocado na pasta monitorada é lido,
-classificado, datado, arquivado e indexado — e aparece na tela sozinho, sem
+classificado, datado, arquivado e fichado — e aparece na tela sozinho, sem
 precisar recarregar nada.
+
+### Onde ficam os dados
+
+Tudo dentro da pasta organizada:
+
+```
+organizados/
+  conta_luz/2026/03/conta_energia_marco.txt   <- o documento, que é o que importa
+  _Revisar/scan0031.txt                        <- o que não deu para classificar
+  _Duplicados/                                 <- cópias do que já estava arquivado
+  .autodoc/catalogo.jsonl                      <- as fichas; refazíveis a qualquer momento
+```
+
+Não há banco de dados. A pasta é a verdade e o catálogo é só um caderno de
+fichas sobre ela: apagar `.autodoc/` não perde nada, porque na abertura seguinte
+o AutoDoc varre as pastas e refaz as fichas. Apagar a pasta apaga tudo — que é o
+comportamento esperado de um programa que não guarda nada em outro lugar.
 
 Para experimentar sem usar documentos seus:
 
@@ -102,6 +130,16 @@ cp exemplos/*.txt entrada/
 São cinco documentos fictícios, descritos em [exemplos/LEIA-ME.md](exemplos/LEIA-ME.md).
 Um deles é ilegível de propósito, para mostrar o que o sistema faz quando não
 tem confiança suficiente para classificar.
+
+### Testes
+
+```bash
+python -m unittest discover -s testes
+```
+
+Usam só a biblioteca padrão — rodar os testes não pede nada além do que o
+AutoDoc já pede. Cobrem a classificação, as datas, o catálogo, a reconstrução do
+catálogo a partir das pastas, o pipeline ponta a ponta, a API e a instalação.
 
 ### Interface gráfica
 
@@ -133,7 +171,7 @@ python3 ferramentas/servir_demo.py
 ```
 autodoc/
   config.py         # leitura do config.json e criação das pastas
-  db.py             # banco SQLite: indexação e busca
+  catalogo.py       # fichas dos documentos e busca — sem banco de dados
   extrator.py       # extração de texto (txt, PDF e OCR de imagens)
   classificador.py  # classificação por palavras-chave com pesos
   datas.py          # identificação da data do documento
@@ -154,12 +192,14 @@ main.py             # interface de linha de comando
 ### Como o documento é processado
 
 1. **Detecção** — o `monitor` percebe o arquivo novo e espera a cópia terminar.
-2. **Deduplicação** — o hash SHA-256 do arquivo é comparado com o banco; se já foi indexado, é ignorado.
-3. **Extração** — o texto é lido direto (`.txt`), da camada de texto do PDF, ou via OCR (imagens).
+2. **Deduplicação** — o hash SHA-256 do conteúdo é comparado com o catálogo; se aquele documento já foi arquivado, a cópia vai para `organizados/_Duplicados/` em vez de ser processada de novo.
+3. **Extração** — o texto é lido direto (`.txt`), da camada de texto do PDF, ou via OCR — de imagens e também de PDFs digitalizados, que não têm camada de texto.
 4. **Classificação** — cada categoria pontua conforme as palavras-chave encontradas, e o resultado vira uma **confiança de 0 a 1**. Abaixo de 0,60 o documento não é classificado.
 5. **Data** — procura a data que estiver perto de um rótulo conhecido ("vencimento", "data de emissão"); sem rótulo, usa a primeira data do texto; sem data nenhuma, a modificação do arquivo.
 6. **Arquivamento** — o arquivo vai para `organizados/<categoria>/<ano>/<mês>/`, sem sobrescrever homônimos. O que ficou abaixo do limiar vai para `organizados/_Revisar/`.
-7. **Indexação e backup** — metadados, texto e a explicação da classificação vão para o SQLite, indexados com FTS5; se configurado, uma cópia vai para a pasta de backup.
+7. **Ficha e backup** — metadados, texto e a explicação da classificação viram uma ficha em `organizados/.autodoc/catalogo.jsonl`; se configurado, uma cópia vai para a pasta de backup.
+
+O que não pôde ser lido — PDF corrompido, imagem ilegível, OCR indisponível — também sai da pasta de entrada e vai para `_Revisar/`, com o motivo escrito no trajeto. Um arquivo deixado para trás seria reexaminado a cada abertura e ninguém saberia que ele existe.
 
 ### Categorias reconhecidas
 
@@ -185,7 +225,15 @@ Além do escopo original da proposta, esta base inclui:
 - **Confiança na classificação**, com limiar: o que fica abaixo vai para revisão em vez de ser chutado numa categoria.
 - **Explicação de cada decisão**: regra acionada, palavras-chave encontradas, trajeto do arquivo e trecho lido.
 - **Data escolhida por rótulo** — uma conta de luz tem três datas, e arquivar pela primeira erraria o mês.
-- **Busca por conteúdo com FTS5**, o índice de texto do próprio SQLite.
+- **Catálogo em pasta, sem banco de dados.** O que o AutoDoc sabe fica em `organizados/.autodoc/catalogo.jsonl`, uma ficha por linha em texto puro. É um cache, não a verdade: apagar o arquivo não perde nada, porque na abertura seguinte o programa varre as pastas e o remonta.
+- **A pasta organizada é a fonte da verdade.** Apagar um documento no Finder o faz sumir da tela; arrastar um arquivo para `contrato/2026/03/` o inclui no catálogo, e a pasta escolhida por uma pessoa vence a opinião do classificador.
+- **Índice invertido próprio** para a busca — palavra por palavra, com prefixo e sem acento. Procurar "marc" acha "março" sem trazer "demarcado", que era o defeito de buscar com `LIKE`.
+- **Correção manual da categoria**: quem discorda da classificação escolhe a categoria certa na tela, e o arquivo se move junto. O trajeto registra que a decisão foi humana.
+- **Abrir e revelar o documento** pelo painel de detalhe, no leitor e no gerenciador de arquivos do próprio sistema.
+- **Duplicatas vão para `_Duplicados/`** em vez de ficarem presas na pasta de entrada. Nada é apagado — o arquivo é de quem usa.
+- **Porta livre automática**: abrir o AutoDoc com uma janela já aberta escolhe a próxima porta em vez de derrubar o programa.
+- **OCR de PDFs digitalizados**, extraindo as imagens embutidas com o próprio pypdf — sem depender de poppler ou pdf2image.
+- **Suíte de testes automatizados** com `unittest`, sem nenhuma dependência nova.
 - **Instalador gráfico** que executa etapas reais e cria o atalho no sistema.
 - **Janela nativa**, sem navegador: o programa tem a própria janela e o próprio ícone.
 - **Atualização ao vivo**: documentos novos aparecem na tela sozinhos, sem recarregar.
@@ -203,11 +251,15 @@ continuá-lo:
   repositório, com `python3 instalar.py`. Falta empacotar isso num arquivo que a
   landing possa entregar — a página detecta que o pacote não existe e avisa, em
   vez de oferecer um link quebrado.
-- **OCR de PDFs digitalizados.** A função existe em `extrator.py`, mas ainda não
-  é acionada quando um PDF não tem camada de texto.
 - **Calibragem das regras.** Estão ajustadas contra os documentos de `exemplos/`
   e ainda não foram testadas com contas e notas reais, que variam bastante de
   emissor para emissor.
-- **Testes automatizados.** A verificação até aqui foi manual.
 - **Windows e Linux.** O código é escrito para os três sistemas, mas só foi
   testado no macOS.
+- **Escala do catálogo.** Ele é lido inteiro para a memória ao abrir o programa,
+  o que é imediato para as centenas de documentos que uma pessoa acumula. Para
+  dezenas de milhares o texto completo na memória passaria a incomodar, e aí
+  valeria guardar o texto fora da ficha.
+- **Data por rótulo em texto muito corrido.** A distância entre o rótulo e a data
+  é medida depois de juntar os espaços, então um rótulo seguido de muitas
+  palavras ainda pode alcançar uma data que não é dele.

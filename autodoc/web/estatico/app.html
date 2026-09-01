@@ -40,8 +40,8 @@
     </section>
 
     <dl class="lateral__estado ad-mono">
-      <div><dt>banco</dt><dd>autodoc.db</dd></div>
-      <div><dt>índice</dt><dd data-indice>FTS5</dd></div>
+      <div><dt>dados</dt><dd data-dados>pasta organizada</dd></div>
+      <div><dt>busca</dt><dd data-indice>índice interno</dd></div>
       <div><dt>backup</dt><dd class="lateral__ok" data-backup>sincronizado</dd></div>
     </dl>
   </aside>
@@ -52,6 +52,8 @@
       <h1 class="centro__titulo">Documentos processados</h1>
       <p class="centro__resumo" data-resumo aria-live="polite"></p>
     </header>
+
+    <p class="aviso" data-aviso role="alert" hidden></p>
 
     <div class="busca">
       <span class="busca__lupa" aria-hidden="true">⌕</span>
@@ -72,9 +74,11 @@
       </div>
       <div class="tabela__corpo" data-linhas role="grid"
            aria-label="Documentos processados"></div>
-      <p class="tabela__vazio" data-vazio hidden>
-        Nenhum documento corresponde ao filtro.
-      </p>
+      <div class="tabela__vazio" data-vazio hidden>
+        <p data-vazio-texto>Nenhum documento corresponde ao filtro.</p>
+        <button class="ad-botao ad-botao--secundario" type="button"
+                data-abrir-pasta hidden>Abrir a pasta monitorada</button>
+      </div>
     </div>
   </main>
 
@@ -87,6 +91,25 @@
         <span data-det-etiqueta></span>
         <span class="detalhe__confianca ad-mono" data-det-confianca></span>
       </p>
+      <p class="detalhe__acoes" data-acoes hidden>
+        <button class="ad-botao ad-botao--secundario" type="button"
+                data-abrir-doc>Abrir</button>
+        <button class="ad-botao ad-botao--secundario" type="button"
+                data-revelar-doc>Mostrar na pasta</button>
+      </p>
+    </section>
+
+    <section class="detalhe__corrigir ad-cartao" data-corrigir hidden>
+      <h3 class="ad-rotulo">Discorda da classificação?</h3>
+      <p class="detalhe__corrigir-texto">
+        O classificador acerta pelo que está escrito no documento. Quando erra,
+        a última palavra é sua.
+      </p>
+      <label class="detalhe__corrigir-campo">
+        <span class="ad-rotulo">Arquivar como</span>
+        <select class="ad-mono" data-categoria-nova
+                aria-label="Escolher a categoria correta"></select>
+      </label>
     </section>
 
     <section class="detalhe__regra ad-cartao">

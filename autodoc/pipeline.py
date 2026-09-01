@@ -1,7 +1,7 @@
 """Pipeline de processamento de um documento.
 
 Fluxo: extrai texto -> classifica -> extrai data -> arquiva em
-<saida>/<categoria>/<ano>/<mes>/ -> indexa no banco -> copia para o backup.
+<saida>/<categoria>/<ano>/<mes>/ -> ficha no catalogo -> copia para o backup.
 
 Cada passo registra o que fez. Esse registro — o "trajeto do arquivo" — e o que
 a tela mostra quando alguem quer entender por que um documento foi parar onde
@@ -17,16 +17,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .classificador import NAO_CLASSIFICADO, Classificacao, classificar
+from .catalogo import PASTA_DUPLICADOS, PASTA_REVISAO, Catalogo, Ficha
+from .classificador import NAO_CLASSIFICADO, ROTULOS, Classificacao, classificar
 from .config import Config
 from .datas import data_de_modificacao, extrair_data_rotulada, extrair_datas
-from .db import Banco, Documento
 from .extrator import ExtracaoIndisponivel, extrair_com_origem, hash_arquivo
 
 logger = logging.getLogger(__name__)
-
-# Pasta para onde vai o que o classificador nao teve confianca de classificar.
-PASTA_REVISAO = "_Revisar"
 
 # Quanto do texto lido aparece no painel "trecho lido do documento".
 TAMANHO_TRECHO = 220
@@ -41,7 +38,7 @@ class Resultado:
     data: str | None = None
     destino: Path | None = None
     ignorado: str | None = None
-    documento: Documento | None = None
+    documento: Ficha | None = None
     etapas: list[dict[str, str]] = field(default_factory=list)
 
     @property
@@ -68,17 +65,29 @@ def _formatar_tamanho(bytes_: int) -> str:
 class Pipeline:
     """Orquestra a leitura, classificacao e arquivamento dos documentos."""
 
-    def __init__(self, config: Config, banco: Banco) -> None:
+    def __init__(self, config: Config, catalogo: Catalogo) -> None:
         self.config = config
-        self.banco = banco
+        self.catalogo = catalogo
 
     def processar(self, caminho: Path) -> Resultado:
         if caminho.suffix.lower() not in self.config.extensoes:
             return Resultado(caminho, ignorado="extensao nao monitorada")
 
-        assinatura = hash_arquivo(caminho)
-        if self.banco.ja_indexado(assinatura):
-            return Resultado(caminho, ignorado="ja indexado")
+        try:
+            assinatura = hash_arquivo(caminho)
+        except OSError as erro:
+            logger.warning("nao foi possivel ler %s: %s", caminho.name, erro)
+            return Resultado(caminho, ignorado=f"arquivo ilegivel: {erro}")
+
+        if self.catalogo.ja_indexado(assinatura):
+            # Sair da pasta de entrada mesmo assim. Deixado ali, o arquivo seria
+            # reexaminado a cada abertura do programa e a pasta nunca esvaziaria
+            # — e quem largou a copia acharia que o AutoDoc simplesmente ignorou
+            # o arquivo. Copia nao se apaga: o original e de quem usa.
+            destino = self._recolher(caminho, PASTA_DUPLICADOS)
+            return Resultado(
+                caminho, ignorado="ja indexado", destino=destino,
+            )
 
         tamanho = caminho.stat().st_size
         etapas = [
@@ -91,18 +100,29 @@ class Pipeline:
             }
         ]
 
+        # Ler pode falhar por falta do Tesseract, PDF corrompido, permissao. Em
+        # nenhum desses casos o arquivo pode ficar parado na pasta de entrada:
+        # ali ele seria retentado a cada abertura do programa e ninguem saberia
+        # que ele existe. Vai para a revisao, com o motivo escrito no trajeto.
+        ilegivel: str | None = None
         try:
             texto, origem = extrair_com_origem(caminho)
-        except ExtracaoIndisponivel as erro:
+        except (ExtracaoIndisponivel, OSError) as erro:
             logger.warning("nao foi possivel ler %s: %s", caminho.name, erro)
-            return Resultado(caminho, ignorado=str(erro))
+            texto, origem, ilegivel = "", "não foi possível ler o arquivo", str(erro)
 
         etapas.append({
             "titulo": "Extração de texto",
-            "detalhe": f"{origem} · {len(texto)} caracteres lidos",
+            "detalhe": ilegivel or f"{origem} · {len(texto)} caracteres lidos",
         })
 
         classificacao = classificar(texto)
+        if ilegivel:
+            classificacao = Classificacao(
+                categoria=NAO_CLASSIFICADO,
+                confianca=0.0,
+                regra=f"não foi possível ler o conteúdo — {ilegivel}",
+            )
         etapas.append({
             "titulo": "Classificação",
             "detalhe": (
@@ -121,9 +141,9 @@ class Pipeline:
             "detalhe": f"movido para {relativo} e indexado na busca",
         })
 
-        documento = Documento(
+        documento = Ficha(
             arquivo=caminho.name,
-            caminho=str(destino),
+            caminho=self.catalogo.relativo(destino),
             categoria=classificacao.categoria,
             data_documento=data,
             texto=texto,
@@ -136,7 +156,7 @@ class Pipeline:
             origem=origem,
             tamanho=tamanho,
         )
-        self.banco.inserir(documento)
+        self.catalogo.inserir(documento)
         self._fazer_backup(destino, classificacao)
 
         logger.info(
@@ -150,6 +170,86 @@ class Pipeline:
             destino=destino,
             documento=documento,
             etapas=etapas,
+        )
+
+    def reclassificar(self, ficha: Ficha, categoria: str) -> Ficha:
+        """Move o documento para outra categoria, porque alguem discordou.
+
+        O classificador erra, e um sistema que so deixa concordar com ele nao e
+        util: o que vai para `_Revisar/` precisa ter como sair de la. A
+        confianca vira 1.0 e a regra passa a dizer que foi decisao humana — nao
+        se atribui ao classificador um acerto que nao foi dele.
+        """
+        if categoria not in ROTULOS:
+            raise ValueError(f"categoria desconhecida: {categoria}")
+
+        origem = self.catalogo.caminho_de(ficha)
+        destino_pasta = self._pasta_destino(
+            Classificacao(categoria=categoria, confianca=1.0, regra=""),
+            ficha.data_documento,
+        )
+        destino_pasta.mkdir(parents=True, exist_ok=True)
+        destino = self._nome_livre(destino_pasta / origem.name)
+
+        if origem.exists():
+            shutil.move(str(origem), destino)
+        else:
+            logger.warning("arquivo de %s sumiu antes da correcao", ficha.arquivo)
+
+        ficha.categoria = categoria
+        ficha.caminho = self.catalogo.relativo(destino)
+        ficha.confianca = 1.0
+        ficha.regra = f'categoria definida a mao como "{ROTULOS[categoria]}"'
+        ficha.etapas = list(ficha.etapas) + [{
+            "titulo": "Correção manual",
+            "detalhe": (
+                f"movido para {self._relativo(destino)} por escolha de quem usa — "
+                f"{datetime.now():%d/%m/%Y %H:%M}"
+            ),
+        }]
+
+        self.catalogo.atualizar(ficha)
+        logger.info("%s corrigido a mao para %s", ficha.arquivo, categoria)
+        return ficha
+
+    def analisar(self, caminho: Path) -> Ficha | None:
+        """Le e classifica um arquivo **sem mover nada**.
+
+        E o que o catalogo pede quando encontra, na pasta organizada, um
+        documento que ele nao conhece: alguem arrastou o arquivo para la a mao,
+        ou o caderno de fichas foi apagado. Nos dois casos o arquivo ja esta no
+        lugar que alguem escolheu — o que falta e saber o que ele diz.
+        """
+        try:
+            texto, origem = extrair_com_origem(caminho)
+        except (ExtracaoIndisponivel, OSError) as erro:
+            logger.warning("nao foi possivel reler %s: %s", caminho.name, erro)
+            texto, origem = "", f"nao foi possivel ler: {erro}"
+
+        classificacao = classificar(texto)
+        data, detalhe_data = self._resolver_data(texto, caminho)
+
+        return Ficha(
+            arquivo=caminho.name,
+            caminho=self.catalogo.relativo(caminho),
+            categoria=classificacao.categoria,
+            data_documento=data,
+            texto=texto,
+            hash=hash_arquivo(caminho),
+            confianca=classificacao.confianca,
+            regra=classificacao.regra,
+            palavras_chave=classificacao.chaves,
+            trecho=_trecho(texto),
+            etapas=[
+                {"titulo": "Releitura", "detalhe":
+                 "documento encontrado na pasta organizada e fichado de novo"},
+                {"titulo": "Extração de texto",
+                 "detalhe": f"{origem} · {len(texto)} caracteres lidos"},
+                {"titulo": "Classificação", "detalhe": classificacao.regra},
+                {"titulo": "Data", "detalhe": detalhe_data},
+            ],
+            origem=origem,
+            tamanho=caminho.stat().st_size,
         )
 
     @staticmethod
@@ -183,6 +283,18 @@ class Pipeline:
 
         return self.config.pasta_saida / classificacao.categoria / "sem-data"
 
+    def _recolher(self, caminho: Path, nome_pasta: str) -> Path | None:
+        """Tira o arquivo da pasta de entrada, sem arquiva-lo de fato."""
+        pasta = self.config.pasta_saida / nome_pasta
+        try:
+            pasta.mkdir(parents=True, exist_ok=True)
+            destino = self._nome_livre(pasta / caminho.name)
+            shutil.move(str(caminho), destino)
+            return destino
+        except OSError as erro:
+            logger.warning("nao foi possivel mover %s: %s", caminho.name, erro)
+            return None
+
     def _arquivar(
         self, caminho: Path, classificacao: Classificacao, data: str | None
     ) -> Path:
@@ -201,6 +313,12 @@ class Pipeline:
             return str(destino.parent) + "/"
 
     def _fazer_backup(self, destino: Path, classificacao: Classificacao) -> None:
+        """Copia para a pasta sincronizada. Falhar aqui nao invalida o resto.
+
+        A pasta de backup costuma ser do Drive ou do OneDrive, que ficam
+        indisponiveis sozinhos. O documento ja esta arquivado e fichado quando
+        isto roda — perder a copia e um aviso, nao um erro de processamento.
+        """
         if self.config.pasta_backup is None:
             return
         # Mesmo nome de pasta do arquivo principal, para o backup nao virar uma
@@ -210,9 +328,12 @@ class Pipeline:
             if classificacao.categoria == NAO_CLASSIFICADO
             else classificacao.categoria
         )
-        pasta = self.config.pasta_backup / nome
-        pasta.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(destino, self._nome_livre(pasta / destino.name))
+        try:
+            pasta = self.config.pasta_backup / nome
+            pasta.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(destino, self._nome_livre(pasta / destino.name))
+        except OSError as erro:
+            logger.warning("backup de %s falhou: %s", destino.name, erro)
 
     @staticmethod
     def _nome_livre(destino: Path) -> Path:

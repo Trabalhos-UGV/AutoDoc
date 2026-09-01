@@ -3,11 +3,13 @@
 Fala o contrato que autodoc/web/estatico/js/app.js ja esperava desde que as
 telas foram construidas:
 
-    GET /api/estado                 existir ja significa "modo real"
-    GET /api/documentos?cat=&q=     {linhas, todos, categorias, estatisticas}
-    GET /api/eventos                SSE — um evento por documento novo
+    GET  /api/estado                existir ja significa "modo real"
+    GET  /api/documentos?cat=&q=    {linhas, todos, categorias, estatisticas}
+    GET  /api/eventos               SSE — um evento por documento novo
+    POST /api/abrir                 abre a pasta ou o documento no sistema
+    POST /api/reclassificar         corrige a mao a categoria de um documento
 
-Roda so em 127.0.0.1: e um programa de mesa, o banco tem o conteudo dos
+Roda so em 127.0.0.1: e um programa de mesa, o catalogo tem o conteudo dos
 documentos da pessoa, e nada disso tem por que estar acessivel na rede.
 
 O `/api/eventos` e o que faz a linha aparecer sozinha na tela quando um arquivo
@@ -17,9 +19,11 @@ documento para todas as telas abertas.
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import queue
+import subprocess
 import sys
 import threading
 from datetime import date
@@ -29,8 +33,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
-from ..classificador import NAO_CLASSIFICADO, ROTULOS
-from ..db import Banco
+from ..catalogo import Catalogo
+from ..classificador import ROTULOS
 from ..monitor import criar_observador, processar_pendentes
 from ..pipeline import Pipeline
 
@@ -38,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 ESTATICO = Path(__file__).resolve().parent / "estatico"
 PORTA_PADRAO = 8757
+
+# Quantas portas seguintes tentar quando a preferida esta ocupada. Acontece o
+# tempo todo: uma janela ja aberta, ou o instalador que acabou de subir o app.
+TENTATIVAS_DE_PORTA = 20
 TODOS = "Todos"
 
 # Teto do que vai para a tela de uma vez. A tela mostra uma lista, nao um
@@ -56,6 +64,38 @@ def _formatar_data(iso: str | None) -> str:
         return date.fromisoformat(iso).strftime("%d/%m/%Y")
     except ValueError:
         return iso
+
+
+def abrir_no_sistema(caminho: Path, revelar: bool = False) -> bool:
+    """Entrega o caminho ao gerenciador de arquivos do proprio sistema.
+
+    `revelar` abre a pasta com o arquivo ja selecionado, em vez de abrir o
+    arquivo — e o que se quer quando a pergunta e "onde isso foi parar?".
+
+    Nao usa `webbrowser.open`: um PDF abriria no navegador em vez de no leitor
+    de PDF da pessoa, e uma pasta nem sempre abriria.
+    """
+    if not caminho.exists():
+        return False
+
+    if sys.platform == "darwin":
+        comando = ["open", "-R", str(caminho)] if revelar else ["open", str(caminho)]
+    elif sys.platform.startswith("win"):
+        comando = (
+            ["explorer", f"/select,{caminho}"] if revelar
+            else ["cmd", "/c", "start", "", str(caminho)]
+        )
+    else:
+        # No Linux nao ha "revelar" universal; abrir a pasta e o mais proximo.
+        alvo = caminho.parent if revelar else caminho
+        comando = ["xdg-open", str(alvo)]
+
+    try:
+        subprocess.Popen(comando)
+        return True
+    except OSError:
+        logger.exception("nao foi possivel abrir %s", caminho)
+        return False
 
 
 class ServidorHTTP(ThreadingHTTPServer):
@@ -80,12 +120,12 @@ class Servidor:
     def __init__(
         self,
         config,
-        banco: Banco,
+        catalogo: Catalogo,
         pipeline: Pipeline,
         porta: int = PORTA_PADRAO,
     ) -> None:
         self.config = config
-        self.banco = banco
+        self.catalogo = catalogo
         self.pipeline = pipeline
         self.porta = porta
         self._http: ThreadingHTTPServer | None = None
@@ -98,7 +138,7 @@ class Servidor:
     # ------------------------------------------------------------ dados
 
     def _linha(self, registro) -> dict:
-        """Converte uma linha do banco no formato que a tela consome."""
+        """Converte uma ficha do catalogo no formato que a tela consome."""
         dados = dict(registro)
         categoria = dados["categoria"]
         caminho = Path(dados["caminho"])
@@ -118,13 +158,13 @@ class Servidor:
             "data": _formatar_data(dados.get("data_documento")),
             "destino": destino,
             "regra": dados.get("regra") or "",
-            "chaves": json.loads(dados.get("palavras_chave") or "[]"),
+            "chaves": dados.get("palavras_chave") or [],
             "trecho": dados.get("trecho") or "",
-            "etapas": json.loads(dados.get("etapas") or "[]"),
+            "etapas": dados.get("etapas") or [],
         }
 
     def _categorias(self) -> list[dict]:
-        contagem = self.banco.contar_por_categoria()
+        contagem = self.catalogo.contar_por_categoria()
         total = sum(contagem.values())
 
         lista = [{"nome": TODOS, "contagem": str(total)}]
@@ -137,8 +177,8 @@ class Servidor:
 
     def _documentos(self, categoria: str, termo: str) -> dict:
         registros = (
-            self.banco.buscar(termo, LIMITE) if termo.strip()
-            else self.banco.listar(LIMITE)
+            self.catalogo.buscar(termo, LIMITE) if termo.strip()
+            else self.catalogo.listar(LIMITE)
         )
         linhas = [self._linha(r) for r in registros]
 
@@ -148,13 +188,13 @@ class Servidor:
 
         # `todos` existe porque o painel de detalhe precisa achar o documento
         # selecionado mesmo depois de ele sair do filtro.
-        todos = [self._linha(r) for r in self.banco.listar(LIMITE)]
+        todos = [self._linha(r) for r in self.catalogo.listar(LIMITE)]
 
         return {
             "linhas": linhas,
             "todos": todos,
             "categorias": self._categorias(),
-            "estatisticas": self.banco.estatisticas(),
+            "estatisticas": self.catalogo.estatisticas(),
         }
 
     def _estado(self) -> dict:
@@ -162,18 +202,57 @@ class Servidor:
             "modo": "real",
             "versao": __version__,
             "pasta": str(self.config.pasta_entrada),
-            "busca": "FTS5" if self.banco.tem_busca else "LIKE",
+            "pasta_saida": str(self.config.pasta_saida),
+            "busca": "índice interno",
             "backup": bool(self.config.pasta_backup),
+            # Para o seletor de correcao manual: o rotulo e o que a pessoa le,
+            # a chave e o que o servidor entende.
+            "categorias_possiveis": [
+                {"chave": chave, "rotulo": rotulo} for chave, rotulo in ROTULOS.items()
+            ],
         }
+
+    def _reclassificar(self, pedido: dict) -> dict:
+        """Aplica a correcao de categoria feita na tela."""
+        ficha = self.catalogo.por_id(int(pedido.get("id", 0)))
+        if ficha is None:
+            return {"ok": False, "erro": "documento nao encontrado"}
+
+        try:
+            corrigida = self.pipeline.reclassificar(ficha, pedido.get("categoria", ""))
+        except (ValueError, OSError) as erro:
+            logger.warning("nao foi possivel corrigir %s: %s", ficha.arquivo, erro)
+            return {"ok": False, "erro": str(erro)}
+
+        return {"ok": True, "linha": self._linha(self.catalogo.como_dict(corrigida))}
+
+    def _abrir(self, pedido: dict) -> dict:
+        """Abre a pasta monitorada, ou um documento pelo id."""
+        identificador = pedido.get("id")
+        if identificador is None:
+            aberto = abrir_no_sistema(self.config.pasta_entrada)
+            return {"aberto": aberto, "alvo": str(self.config.pasta_entrada)}
+
+        ficha = self.catalogo.por_id(int(identificador))
+        if ficha is None:
+            return {"aberto": False, "erro": "documento nao encontrado"}
+
+        caminho = self.catalogo.caminho_de(ficha)
+        aberto = abrir_no_sistema(caminho, revelar=bool(pedido.get("revelar")))
+        return {"aberto": aberto, "alvo": str(caminho)}
 
     # ----------------------------------------------------------- eventos
 
     def _anunciar(self, resultado) -> None:
-        """Avisa todas as telas abertas que chegou documento novo."""
-        registros = self.banco.listar(1)
-        if not registros:
+        """Avisa todas as telas abertas que chegou documento novo.
+
+        A linha vem do proprio resultado, e nao de "o primeiro da listagem": a
+        listagem ordena por data do documento, entao uma conta de 2019 que
+        acabou de ser processada faria a tela anunciar outro arquivo.
+        """
+        if resultado.documento is None:
             return
-        linha = self._linha(registros[0])
+        linha = self._linha(self.catalogo.como_dict(resultado.documento))
 
         with self._trava:
             for fila in list(self._ouvintes):
@@ -192,11 +271,42 @@ class Servidor:
 
     # ------------------------------------------------------------ ciclo
 
+    def _escutar(self) -> ServidorHTTP:
+        """Abre a porta preferida, ou a proxima livre.
+
+        Abrir o AutoDoc com uma janela dele ja aberta derrubava o programa com
+        "Address already in use" — um traceback no terminal para quem so clicou
+        duas vezes no icone. Achar outra porta e o comportamento util: o
+        endereco e detalhe interno, ninguem digita esse numero.
+        """
+        manipulador = partial(Rotas, servidor=self)
+
+        for porta in range(self.porta, self.porta + TENTATIVAS_DE_PORTA):
+            try:
+                http = ServidorHTTP(("127.0.0.1", porta), manipulador)
+            except OSError as erro:
+                if erro.errno != errno.EADDRINUSE:
+                    raise
+                continue
+            if porta != self.porta:
+                logger.info("porta %d ocupada; usando a %d", self.porta, porta)
+            self.porta = porta
+            return http
+
+        raise OSError(
+            f"nenhuma porta livre entre {self.porta} e "
+            f"{self.porta + TENTATIVAS_DE_PORTA - 1}"
+        )
+
     def iniciar(self) -> str:
         """Sobe o HTTP e o observador. Devolve a URL para abrir."""
-        manipulador = partial(Rotas, servidor=self)
-        self._http = ServidorHTTP(("127.0.0.1", self.porta), manipulador)
+        self._http = self._escutar()
         threading.Thread(target=self._http.serve_forever, daemon=True).start()
+
+        # A pasta organizada e a verdade: antes de mostrar qualquer coisa, o
+        # catalogo se acerta com ela — o que foi apagado some, e o que foi
+        # colocado la a mao entra.
+        self.catalogo.reconciliar(self.pipeline.analisar)
 
         pendentes = processar_pendentes(self.pipeline)
         if pendentes:
@@ -296,5 +406,26 @@ class Rotas(SimpleHTTPRequestHandler):
                     termo=consulta.get("q", [""])[0],
                 )
             )
+
+        self._json({"erro": "rota desconhecida"}, 404)
+
+    def _corpo(self) -> dict:
+        tamanho = int(self.headers.get("Content-Length") or 0)
+        if not tamanho:
+            return {}
+        try:
+            return json.loads(self.rfile.read(tamanho))
+        except json.JSONDecodeError:
+            return {}
+
+    def do_POST(self) -> None:  # noqa: N802 - nome exigido pela biblioteca
+        rota = urlparse(self.path).path
+        corpo = self._corpo()
+
+        if rota == "/api/abrir":
+            return self._json(self.servidor._abrir(corpo))
+
+        if rota == "/api/reclassificar":
+            return self._json(self.servidor._reclassificar(corpo))
 
         self._json({"erro": "rota desconhecida"}, 404)
