@@ -41,6 +41,11 @@ const el = {
   detChaves: document.querySelector('[data-det-chaves]'),
   detTrajeto: document.querySelector('[data-det-trajeto]'),
   detTrecho: document.querySelector('[data-det-trecho]'),
+  acoes: document.querySelector('[data-acoes]'),
+  abrirDoc: document.querySelector('[data-abrir-doc]'),
+  revelarDoc: document.querySelector('[data-revelar-doc]'),
+  corrigir: document.querySelector('[data-corrigir]'),
+  categoriaNova: document.querySelector('[data-categoria-nova]'),
 };
 
 const estado = {
@@ -50,6 +55,7 @@ const estado = {
   pasta: PASTA_MONITORADA,
   categoria: 'Todos',
   busca: '',
+  categoriasPossiveis: [],
   selecionado: DOCUMENTOS[0]?.id ?? null,
   visiveis: DOCUMENTOS,
 };
@@ -270,6 +276,23 @@ function desenharDetalhe() {
   );
 
   el.detTrecho.textContent = doc.trecho;
+
+  // Abrir e corrigir só existem em modo real: em demonstração não há arquivo
+  // no disco para abrir nem catálogo para corrigir.
+  el.acoes.hidden = modo !== 'real';
+  el.corrigir.hidden = modo !== 'real' || estado.categoriasPossiveis.length === 0;
+
+  if (!el.corrigir.hidden) {
+    el.categoriaNova.replaceChildren(
+      ...estado.categoriasPossiveis.map(({ chave, rotulo }) => {
+        const opcao = document.createElement('option');
+        opcao.value = chave;
+        opcao.textContent = rotulo;
+        opcao.selected = chave === doc.categoria;
+        return opcao;
+      })
+    );
+  }
 }
 
 function desenhar() {
@@ -322,6 +345,47 @@ async function carregar() {
 }
 
 let temporizador;
+/** Pede ao servidor que abra o documento selecionado no sistema. */
+async function abrirDocumento(revelar) {
+  if (estado.selecionado === null) return;
+  try {
+    const resposta = await fetch('api/abrir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: estado.selecionado, revelar }),
+    });
+    const { aberto } = await resposta.json();
+    if (!aberto) avisar('O arquivo não foi encontrado onde o AutoDoc o deixou.');
+  } catch {
+    avisar('Não foi possível abrir o documento.');
+  }
+}
+
+el.abrirDoc.addEventListener('click', () => abrirDocumento(false));
+el.revelarDoc.addEventListener('click', () => abrirDocumento(true));
+
+el.categoriaNova.addEventListener('change', async (evento) => {
+  const categoria = evento.target.value;
+  if (estado.selecionado === null) return;
+  try {
+    const resposta = await fetch('api/reclassificar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: estado.selecionado, categoria }),
+    });
+    const dados = await resposta.json();
+    if (!dados.ok) {
+      avisar(`Não foi possível corrigir: ${dados.erro}`);
+      return;
+    }
+    avisar(null);
+    // O arquivo mudou de pasta: contagens, filtros e destino mudam junto.
+    await carregar();
+  } catch {
+    avisar('Não foi possível corrigir a categoria.');
+  }
+});
+
 el.abrirPasta.addEventListener('click', () => {
   fetch('api/abrir', {
     method: 'POST',
@@ -394,6 +458,10 @@ if (modo === 'real') {
   // Não há banco: o que o AutoDoc sabe mora dentro da pasta organizada, e a
   // lateral mostra qual é ela em vez de um nome de arquivo de banco.
   if (servidor.pasta_saida) el.dados.textContent = servidor.pasta_saida;
+
+  if (Array.isArray(servidor.categorias_possiveis)) {
+    estado.categoriasPossiveis = servidor.categorias_possiveis;
+  }
 
   el.backup.textContent = servidor.backup ? 'sincronizado' : 'não configurado';
   el.backup.classList.toggle('lateral__ok', Boolean(servidor.backup));

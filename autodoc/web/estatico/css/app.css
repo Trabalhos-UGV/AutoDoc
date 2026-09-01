@@ -527,3 +527,42 @@
   font-size: 12.5px;
   line-height: 1.55;
 }
+
+/* ------------------------------------------------- acoes do detalhe */
+
+.detalhe__acoes {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 0;
+  flex-wrap: wrap;
+}
+
+/* A correcao manual e o que impede o painel de ser so uma justificativa:
+   quem le a explicacao e discorda dela precisa poder fazer alguma coisa. */
+.detalhe__corrigir-texto {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ad-apagado);
+}
+
+.detalhe__corrigir-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detalhe__corrigir-campo select {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--ad-texto);
+  background: var(--ad-fundo);
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: var(--ad-raio-min);
+}
+
+.detalhe__corrigir-campo select:focus-visible {
+  outline: 2px solid var(--ad-acento);
+  outline-offset: 1px;
+}
