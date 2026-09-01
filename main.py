@@ -81,8 +81,19 @@ def main(argv: list[str] | None = None) -> int:
 
     comando = args.comando or "app"
 
+    if comando != "app":
+        # A pasta organizada e a verdade, e nao so quando a janela abre: quem
+        # consulta pelo terminal tem que ver o mesmo que a tela veria. Sem isto,
+        # apagar o catalogo deixava `listar` e `buscar` mudos ate alguem abrir o
+        # aplicativo — e a promessa de que o catalogo se remonta sozinho valia
+        # pela metade. No `app` quem reconcilia e o servidor, ao subir.
+        catalogo.reconciliar(Pipeline(config, catalogo).analisar)
+
     if comando == "app":
-        return abrir_aplicativo(config, catalogo, args.porta)
+        # `porta` só existe quando o subcomando foi escrito. Sem isto, rodar
+        # `python main.py` sozinho — que a ajuda diz ser o mesmo que `app` —
+        # quebrava com AttributeError antes de abrir coisa alguma.
+        return abrir_aplicativo(config, catalogo, getattr(args, "porta", PORTA_PADRAO))
 
     if comando == "buscar":
         imprimir(catalogo.buscar(args.termo, args.limite))
