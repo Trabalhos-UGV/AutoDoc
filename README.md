@@ -134,12 +134,43 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes
+python -m unittest discover -s testes     # 357 testes, ~8 segundos
+python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
 Usam só a biblioteca padrão — rodar os testes não pede nada além do que o
-AutoDoc já pede. Cobrem a classificação, as datas, o catálogo, a reconstrução do
-catálogo a partir das pastas, o pipeline ponta a ponta, a API e a instalação.
+AutoDoc já pede, e cada um trabalha numa pasta temporária própria.
+
+| Arquivo | O que cobre |
+| --- | --- |
+| `test_classificador.py` | categorias, confiança, limiar, empate e duplo sentido |
+| `test_datas.py` | os três formatos, data inválida e a escolha pelo rótulo |
+| `test_catalogo.py` | fichas, dedupe por conteúdo, busca por prefixo e sem acento |
+| `test_reconciliacao.py` | a pasta como verdade: catálogo apagado, arquivo apagado, arquivo posto à mão |
+| `test_pipeline.py` | o caminho completo do documento, dedupe, correção manual e documento ilegível |
+| `test_extrator.py` | texto, PDF, OCR de digitalizado e as dependências opcionais ausentes |
+| `test_monitor.py` | arquivos ignorados, espera pela cópia e os eventos da pasta |
+| `test_servidor.py` | a API das telas, o fluxo de eventos e a porta ocupada |
+| `test_instalacao.py` | as seis etapas e a pasta escolhida chegando ao `config.json` |
+| `test_instalador_servidor.py` | o estado do instalador gráfico e as rotas dele |
+| `test_atalho.py` | o `.app`, o `.desktop` e o `.lnk` gerados |
+| `test_janela.py` | a janela nativa e a queda para o navegador |
+| `test_config.py` | padrões, pasta de saída e a gravação da escolha |
+| `test_main.py` | a linha de comando inteira |
+
+**A cobertura é de 100% das linhas** (1800 de 1807). As sete que faltam ficam de
+fora por motivo, e não por esquecimento:
+
+- os caminhos **só do Windows** (`%APPDATA%`, `venv\Scripts\`) — não dá para
+  exercitá-los no macOS, e fingir que dá seria pior;
+- o **ping de 15 segundos** que mantém o fluxo de eventos vivo — cobri-lo
+  exigiria um teste que espera quinze segundos;
+- os dois `if __name__ == "__main__"`.
+
+O medidor é `ferramentas/cobertura.py`, escrito com o `trace` da biblioteca
+padrão. Ele registra o rastreador também para as threads novas
+(`threading.settrace`), sem o que o servidor e o monitoramento ficam invisíveis
+e o `servidor.py` aparece com 35% quando na verdade tem 100%.
 
 ### Interface gráfica
 
@@ -233,7 +264,8 @@ Além do escopo original da proposta, esta base inclui:
 - **Duplicatas vão para `_Duplicados/`** em vez de ficarem presas na pasta de entrada. Nada é apagado — o arquivo é de quem usa.
 - **Porta livre automática**: abrir o AutoDoc com uma janela já aberta escolhe a próxima porta em vez de derrubar o programa.
 - **OCR de PDFs digitalizados**, extraindo as imagens embutidas com o próprio pypdf — sem depender de poppler ou pdf2image.
-- **Suíte de testes automatizados** com `unittest`, sem nenhuma dependência nova.
+- **Suíte de testes automatizados** com `unittest`, sem nenhuma dependência nova, cobrindo 100% das linhas.
+- **Medidor de cobertura próprio** (`ferramentas/cobertura.py`), feito com o `trace` da biblioteca padrão — inclusive das threads do servidor e do monitoramento, que as ferramentas costumam deixar passar.
 - **Instalador gráfico** que executa etapas reais e cria o atalho no sistema.
 - **Janela nativa**, sem navegador: o programa tem a própria janela e o próprio ícone.
 - **Atualização ao vivo**: documentos novos aparecem na tela sozinhos, sem recarregar.
@@ -254,8 +286,18 @@ continuá-lo:
 - **Calibragem das regras.** Estão ajustadas contra os documentos de `exemplos/`
   e ainda não foram testadas com contas e notas reais, que variam bastante de
   emissor para emissor.
-- **Windows e Linux.** O código é escrito para os três sistemas, mas só foi
-  testado no macOS.
+- **Windows e Linux.** O código é escrito para os três sistemas e os testes
+  cobrem as três variações de atalho, mas a execução de verdade só foi feita no
+  macOS.
+- **Testes das telas.** O JavaScript (~700 linhas) não tem teste unitário: o
+  `node` da máquina de desenvolvimento está quebrado e consertá-lo mexeria no
+  sistema de quem está trabalhando. O que existe hoje é a checagem de sintaxe
+  pelo JavaScriptCore do próprio macOS e a conferência de que todo seletor usado
+  no JavaScript existe no HTML — que foi o que pegou erro de verdade.
+- **Hífen invisível.** Um PDF com texto justificado às vezes traz `U+00AD` no
+  meio da palavra, e o `normalizar` não o remove: "con­sumo" não casa com
+  "consumo". Aparece pouco e o conserto mexe na classificação, então fica
+  registrado em vez de mudado às pressas.
 - **Escala do catálogo.** Ele é lido inteiro para a memória ao abrir o programa,
   o que é imediato para as centenas de documentos que uma pessoa acumula. Para
   dezenas de milhares o texto completo na memória passaria a incomodar, e aí
