@@ -91,9 +91,34 @@ class TestDuvida(unittest.TestCase):
         self.assertLess(classificar(texto).confianca, 1.0)
 
 
+class TestApresentacao(unittest.TestCase):
+    """O que a tela lê da classificação."""
+
+    def test_rotulo_traduz_a_categoria_interna(self):
+        texto = (EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8")
+        self.assertEqual(classificar(texto).rotulo, "Conta de energia")
+
+    def test_categoria_desconhecida_aparece_como_esta(self):
+        from autodoc.classificador import Classificacao
+
+        self.assertEqual(Classificacao("inventada", 0.5, "").rotulo, "inventada")
+
+    def test_revisar_marca_o_que_nao_foi_classificado(self):
+        self.assertTrue(classificar("").revisar)
+        texto = (EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8")
+        self.assertFalse(classificar(texto).revisar)
+
+
 class TestFronteiraDePalavra(unittest.TestCase):
     def test_agua_nao_casa_dentro_de_aguardando(self):
         self.assertNotIn("conta_agua", pontuar("aguardando pagamento"))
+
+    def test_acento_solto_e_descartado(self):
+        """Um acento sem letra debaixo dele some, em vez de virar caractere."""
+        self.assertEqual(normalizar("consumo\u0301"), "consumo")
+
+    def test_acento_grudado_na_letra_tambem_some(self):
+        self.assertEqual(normalizar("a\u0301gua"), "agua")
 
 
 if __name__ == "__main__":

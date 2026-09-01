@@ -103,6 +103,73 @@ class TestAtualizacao(BaseCatalogo):
         self.assertEqual(self.catalogo.contar_por_categoria(), {"contrato": 1})
 
 
+class TestCaminhos(BaseCatalogo):
+    def test_caminho_dentro_da_saida_e_guardado_relativo(self):
+        dentro = self.saida / "conta_luz" / "2026" / "03" / "a.txt"
+        self.assertEqual(self.catalogo.relativo(dentro), "conta_luz/2026/03/a.txt")
+
+    def test_caminho_fora_da_saida_e_guardado_absoluto(self):
+        """Não dá para relativizar; guardar absoluto ao menos aponta para o arquivo."""
+        fora = Path("/outro/lugar/documento.txt")
+        self.assertEqual(self.catalogo.relativo(fora), str(fora))
+
+    def test_pasta_de_saida_inexistente_nao_quebra_a_varredura(self):
+        vazio = Catalogo(self.saida)
+        vazio.pasta_saida = self.saida / "nao-existe"
+        self.assertEqual(vazio.arquivos_no_disco(), [])
+
+    def test_categoria_do_caminho(self):
+        casos = [
+            ("conta_luz/2026/03/a.txt", "conta_luz"),
+            ("_Revisar/scan.txt", "nao_classificado"),
+            ("pasta_inventada/2026/a.txt", None),
+            ("solto.txt", None),
+        ]
+        for relativo, esperado in casos:
+            with self.subTest(caminho=relativo):
+                self.assertEqual(
+                    self.catalogo.categoria_do_caminho(self.saida / relativo), esperado)
+
+
+class TestReconciliarSemAnalisador(BaseCatalogo):
+    """Sem o pipeline emprestado, a pasta sozinha já diz o essencial."""
+
+    def test_ficha_minima_a_partir_do_caminho(self):
+        destino = self.saida / "contrato" / "2026" / "03"
+        destino.mkdir(parents=True)
+        (destino / "aluguel.txt").write_text("contrato", encoding="utf-8")
+
+        self.catalogo.reconciliar()
+
+        ficha = self.catalogo.por_id(1)
+        self.assertEqual(ficha.categoria, "contrato")
+        self.assertIn("remontada", ficha.regra)
+        self.assertGreater(ficha.tamanho, 0)
+
+    def test_arquivo_que_some_no_meio_da_varredura(self):
+        destino = self.saida / "contrato" / "2026" / "03"
+        destino.mkdir(parents=True)
+        alvo = destino / "some.txt"
+        alvo.write_text("contrato", encoding="utf-8")
+
+        def some_antes_de_fichar(caminho):
+            alvo.unlink()
+            raise OSError("arquivo sumiu")
+
+        with self.assertLogs("autodoc.catalogo", "WARNING"):
+            self.catalogo.reconciliar(some_antes_de_fichar)
+
+        self.assertEqual(len(self.catalogo), 0)
+
+    def test_analisador_que_devolve_nada_nao_ficha(self):
+        destino = self.saida / "contrato" / "2026" / "03"
+        destino.mkdir(parents=True)
+        (destino / "a.txt").write_text("contrato", encoding="utf-8")
+
+        self.catalogo.reconciliar(lambda _: None)
+        self.assertEqual(len(self.catalogo), 0)
+
+
 class TestConsulta(BaseCatalogo):
     def setUp(self):
         super().setUp()

@@ -78,6 +78,16 @@ class TestDataPorRotulo(unittest.TestCase):
                 "interessadas e registrado em cartorio 12/03/2026"
         self.assertIsNone(extrair_data_rotulada(texto))
 
+    def test_rotulo_com_data_iso(self):
+        """Um PDF gerado por sistema costuma escrever a data em ISO."""
+        self.assertEqual(extrair_data_rotulada("Vencimento: 2026-03-15"),
+                         ("2026-03-15", "vencimento"))
+
+    def test_rotulo_com_data_por_extenso(self):
+        self.assertEqual(
+            extrair_data_rotulada("Data de assinatura: 12 de março de 2026"),
+            ("2026-03-12", "data de assinatura"))
+
     def test_conta_de_exemplo_usa_o_vencimento(self):
         texto = (EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8")
         self.assertEqual(extrair_data_rotulada(texto), ("2026-03-12", "vencimento"))
@@ -86,6 +96,10 @@ class TestDataPorRotulo(unittest.TestCase):
 class TestExtrairData(unittest.TestCase):
     def test_cai_na_primeira_data_quando_nao_ha_rotulo(self):
         self.assertEqual(extrair_data("assinado em 01/03/2026"), "2026-03-01")
+
+    def test_prefere_a_data_rotulada(self):
+        self.assertEqual(extrair_data("Leitura: 01/03/2026 Vencimento: 15/03/2026"),
+                         "2026-03-15")
 
     def test_cai_no_padrao_informado(self):
         self.assertEqual(extrair_data("sem data", date(2026, 1, 1)), "2026-01-01")

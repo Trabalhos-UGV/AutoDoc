@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from autodoc.config import Config
@@ -40,6 +41,21 @@ class TestPadroes(BaseConfig):
     def test_sem_arquivo_usa_os_padroes(self):
         config = Config.carregar(self.pasta / "nao-existe.json")
         self.assertEqual(config.pasta_entrada, Config().pasta_entrada)
+
+
+class TestPastaDeDocumentos(BaseConfig):
+    def test_usa_o_nome_que_a_pasta_tem_neste_sistema(self):
+        from autodoc.config import pasta_documentos
+
+        self.assertIn(pasta_documentos().name,
+                      {"Documentos", "Documents", Path.home().name})
+
+    def test_sem_pasta_de_documentos_cai_na_casa(self):
+        """Um sistema em outro idioma, ou uma conta recém-criada."""
+        from autodoc import config as modulo
+
+        with mock.patch.object(modulo.Path, "is_dir", return_value=False):
+            self.assertEqual(modulo.pasta_documentos(), Path.home())
 
 
 class TestLeitura(BaseConfig):
