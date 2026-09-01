@@ -147,3 +147,33 @@ class Catalogo:
             # Fora da pasta organizada — guarda absoluto, que ao menos aponta
             # para o arquivo certo enquanto ele estiver ali.
             return str(caminho)
+
+    # --------------------------------------------------------- escrita
+
+    def _anexar(self, ficha: Ficha) -> None:
+        """Escreve uma linha no fim do caderno e garante que ela chegou ao disco.
+
+        `flush` porque o AutoDoc costuma ser fechado pela janela, sem aviso: uma
+        ficha que ficou no buffer do Python quando o processo morreu e uma ficha
+        perdida.
+        """
+        with self.arquivo.open("a", encoding="utf-8") as caderno:
+            caderno.write(ficha.para_json() + "\n")
+            caderno.flush()
+
+    def inserir(self, ficha: Ficha) -> int | None:
+        """Fixa a ficha no catalogo. Devolve None se o documento ja estava la.
+
+        A comparacao e pelo hash do conteudo, e nao pelo nome: o mesmo boleto
+        salvo como `boleto.pdf` e `boleto (1).pdf` e um documento so.
+        """
+        if ficha.hash in self._hashes:
+            return None
+
+        ficha.id = self._proximo_id
+        self._guardar(ficha)
+        self._anexar(ficha)
+        return ficha.id
+
+    def ja_indexado(self, hash_arquivo: str) -> bool:
+        return hash_arquivo in self._hashes
