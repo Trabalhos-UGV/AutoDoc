@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from bisect import bisect_left
 from dataclasses import asdict, dataclass, field, fields
@@ -34,6 +35,12 @@ logger = logging.getLogger(__name__)
 # descreve: levar a pasta organizada para outra maquina leva o catalogo junto.
 PASTA_CATALOGO = ".autodoc"
 NOME_CATALOGO = "catalogo.jsonl"
+
+# Pastas com nome proprio dentro da saida. Ficam aqui, e nao no pipeline,
+# porque quem le a pasta organizada de volta e este modulo — ele precisa
+# saber que `_Revisar/` nao e uma categoria.
+PASTA_REVISAO = "_Revisar"
+PASTA_DUPLICADOS = "_Duplicados"
 
 # Teto do texto guardado por ficha. Um PDF de centenas de paginas nao pode
 # transformar uma linha do catalogo em megabytes; o que passa disso nao muda a
@@ -186,6 +193,21 @@ class Catalogo:
         self._anexar(ficha)
         return ficha.id
 
+    def compactar(self) -> None:
+        """Reescreve o caderno so com as fichas que valem agora.
+
+        O arquivo novo e escrito ao lado e trocado de lugar com `os.replace`,
+        que e atomico: ou o catalogo antigo esta inteiro, ou o novo esta — nunca
+        um meio-termo, que e o que sobraria de escrever por cima do original e
+        ser interrompido no meio.
+        """
+        temporario = self.arquivo.with_suffix(".jsonl.novo")
+        with temporario.open("w", encoding="utf-8") as caderno:
+            for ficha in sorted(self._fichas.values(), key=lambda f: f.id):
+                caderno.write(ficha.para_json() + "\n")
+            caderno.flush()
+        os.replace(temporario, self.arquivo)
+
     def ja_indexado(self, hash_arquivo: str) -> bool:
         return hash_arquivo in self._hashes
 
@@ -200,10 +222,12 @@ class Catalogo:
         self._ordenadas = None
 
     def _reindexar(self) -> None:
-        """Refaz o indice do zero — depois de descartar ou alterar fichas."""
+        """Refaz indice e hashes do zero — depois de descartar ou alterar fichas."""
         self._indice.clear()
+        self._hashes.clear()
         self._ordenadas = None
         for ficha in self._fichas.values():
+            self._hashes.add(ficha.hash)
             self._indexar(ficha)
 
     def _ids_por_prefixo(self, prefixo: str) -> set[int]:
@@ -224,6 +248,114 @@ class Catalogo:
                 break
             achados |= self._indice[palavra]
         return achados
+
+    # ----------------------------------------------------- reconciliacao
+
+    def arquivos_no_disco(self) -> list[Path]:
+        """Todo documento que existe de verdade dentro da pasta organizada.
+
+        Fora ficam a propria pasta do catalogo e os arquivos que o sistema
+        operacional espalha (`.DS_Store`, `Thumbs.db`), que nao sao documentos
+        de ninguem.
+        """
+        if not self.pasta_saida.exists():
+            return []
+
+        achados = []
+        for caminho in sorted(self.pasta_saida.rglob("*")):
+            if not caminho.is_file() or caminho.name.startswith("."):
+                continue
+            if PASTA_CATALOGO in caminho.relative_to(self.pasta_saida).parts:
+                continue
+            achados.append(caminho)
+        return achados
+
+    def categoria_do_caminho(self, caminho: Path) -> str | None:
+        """A categoria que a pasta onde o arquivo esta ja declara.
+
+        Quem colocou o arquivo em `contrato/` disse que e um contrato — e uma
+        pessoa dizendo isso vale mais do que o classificador adivinhando.
+        """
+        partes = Path(self.relativo(caminho)).parts
+        if not partes or len(partes) < 2:
+            return None
+        if partes[0] == PASTA_REVISAO:
+            return NAO_CLASSIFICADO
+        return partes[0] if partes[0] in ROTULOS else None
+
+    def reconciliar(self, analisar=None) -> dict[str, int]:
+        """Poe o catalogo de acordo com a pasta, que e quem manda.
+
+        Ficha cujo arquivo sumiu e descartada — apagou no Finder, sumiu da tela.
+        Arquivo sem ficha e lido e fichado **onde esta**, sem ser movido: se
+        alguem arrastou um contrato para `contrato/2026/03/` a mao, o lugar
+        escolhido e para ser respeitado, nao corrigido.
+
+        `analisar` recebe um caminho e devolve uma Ficha; e por onde o pipeline
+        empresta a leitura e a classificacao sem que este modulo precise
+        conhece-los. Sem ele, o que a pasta diz ja e o bastante para fichar.
+
+        Devolve quantas fichas foram descartadas e quantas foram criadas.
+        """
+        presentes = self.arquivos_no_disco()
+        fichados = {self.caminho_de(f) for f in self._fichas.values()}
+
+        perdidas = [
+            identificador
+            for identificador, ficha in self._fichas.items()
+            if self.caminho_de(ficha) not in set(presentes)
+        ]
+        for identificador in perdidas:
+            del self._fichas[identificador]
+        if perdidas:
+            self._reindexar()
+
+        criadas = 0
+        for caminho in presentes:
+            if caminho in fichados:
+                continue
+            ficha = self._fichar_encontrado(caminho, analisar)
+            if ficha and self.inserir(ficha) is not None:
+                criadas += 1
+
+        if perdidas:
+            self.compactar()
+
+        if perdidas or criadas:
+            logger.info(
+                "catalogo reconciliado: %d ficha(s) descartada(s), %d recuperada(s)",
+                len(perdidas), criadas,
+            )
+        return {"descartadas": len(perdidas), "recuperadas": criadas}
+
+    def _fichar_encontrado(self, caminho: Path, analisar) -> Ficha | None:
+        """Monta a ficha de um arquivo achado solto na pasta organizada."""
+        try:
+            if analisar is not None:
+                ficha = analisar(caminho)
+                if ficha is None:
+                    return None
+            else:
+                ficha = Ficha(
+                    arquivo=caminho.name,
+                    caminho=self.relativo(caminho),
+                    categoria=NAO_CLASSIFICADO,
+                    data_documento=None,
+                    texto="",
+                    hash="",
+                    regra="ficha remontada a partir da pasta, sem releitura",
+                    tamanho=caminho.stat().st_size,
+                )
+        except OSError as erro:
+            logger.warning("nao foi possivel fichar %s: %s", caminho.name, erro)
+            return None
+
+        # A pasta manda na categoria: foi uma pessoa que colocou o arquivo ali.
+        declarada = self.categoria_do_caminho(caminho)
+        if declarada:
+            ficha.categoria = declarada
+        ficha.caminho = self.relativo(caminho)
+        return ficha
 
     # ---------------------------------------------------------- consulta
 
