@@ -5,8 +5,8 @@
    está selecionado. Tudo o mais é consequência disso.
 
    Em demonstração a filtragem acontece aqui, sobre os seis documentos do
-   protótipo. Em modo real quem filtra é o servidor, que tem o índice FTS5 —
-   por isso `carregar()` tem os dois caminhos. */
+   protótipo. Em modo real quem filtra é o servidor, que tem o índice do
+   catálogo — por isso `carregar()` tem os dois caminhos. */
 
 import {
   CATEGORIAS,
@@ -29,6 +29,7 @@ const el = {
   vazio: document.querySelector('[data-vazio]'),
   detalhe: document.querySelector('[data-detalhe]'),
   indice: document.querySelector('[data-indice]'),
+  dados: document.querySelector('[data-dados]'),
   backup: document.querySelector('[data-backup]'),
   detArquivo: document.querySelector('[data-det-arquivo]'),
   detEtiqueta: document.querySelector('[data-det-etiqueta]'),
@@ -346,6 +347,9 @@ if (modo === 'real') {
   const servidor = estadoDoServidor() ?? {};
   if (servidor.pasta) estado.pasta = servidor.pasta;
   if (servidor.busca) el.indice.textContent = servidor.busca;
+  // Não há banco: o que o AutoDoc sabe mora dentro da pasta organizada, e a
+  // lateral mostra qual é ela em vez de um nome de arquivo de banco.
+  if (servidor.pasta_saida) el.dados.textContent = servidor.pasta_saida;
 
   el.backup.textContent = servidor.backup ? 'sincronizado' : 'não configurado';
   el.backup.classList.toggle('lateral__ok', Boolean(servidor.backup));
