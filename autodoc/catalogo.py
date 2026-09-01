@@ -208,6 +208,18 @@ class Catalogo:
             caderno.flush()
         os.replace(temporario, self.arquivo)
 
+    def atualizar(self, ficha: Ficha) -> None:
+        """Regrava uma ficha que mudou — uma correcao feita a mao, por exemplo.
+
+        Compacta em vez de so anexar: a ficha antiga e a nova teriam o mesmo id,
+        e um caderno com as duas so nao mente porque a leitura respeita a
+        ultima. Guardar a versao superada nao serve para nada e faz o arquivo
+        crescer a cada correcao.
+        """
+        self._fichas[ficha.id] = ficha
+        self._reindexar()
+        self.compactar()
+
     def ja_indexado(self, hash_arquivo: str) -> bool:
         return hash_arquivo in self._hashes
 
