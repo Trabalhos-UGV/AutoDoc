@@ -19,8 +19,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .. import __version__
+from ..catalogo import Catalogo
 from ..config import Config
-from ..db import Banco
 from ..pipeline import Pipeline
 from ..web import janela
 from ..web.servidor import ESTATICO, Rotas, ServidorHTTP
@@ -112,9 +112,9 @@ class Instalador:
 
             config = Config.carregar()
             config.preparar_pastas()
-            banco = Banco(config.banco)
+            catalogo = Catalogo(config.pasta_saida)
             self.servidor_app = Servidor(
-                config, banco, Pipeline(config, banco), PORTA_APP
+                config, catalogo, Pipeline(config, catalogo), PORTA_APP
             )
             self.servidor_app.iniciar()
 
