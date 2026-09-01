@@ -246,6 +246,28 @@ class Catalogo:
         fichas.sort(key=_ordem, reverse=True)
         return [self._como_dict(f) for f in fichas[:limite]]
 
+    def buscar(self, termo: str, limite: int = 20) -> list[dict]:
+        """Documentos que casam com todas as palavras digitadas.
+
+        Cada palavra vale como prefixo e **todas** precisam aparecer: "conta
+        luz" acha "conta de luz de marco" em vez de trazer tudo que tem "conta"
+        ou "luz". Termo vazio nao e busca — devolve a listagem normal.
+        """
+        prefixos = _palavras(termo)
+        if not prefixos:
+            return self.listar(limite)
+
+        ids: set[int] | None = None
+        for prefixo in prefixos:
+            achados = self._ids_por_prefixo(prefixo)
+            ids = achados if ids is None else ids & achados
+            if not ids:
+                return []
+
+        fichas = [self._fichas[i] for i in ids or ()]
+        fichas.sort(key=_ordem, reverse=True)
+        return [self._como_dict(f) for f in fichas[:limite]]
+
     def por_id(self, identificador: int) -> Ficha | None:
         """A ficha de um documento — o que as acoes da tela precisam achar."""
         return self._fichas.get(identificador)
