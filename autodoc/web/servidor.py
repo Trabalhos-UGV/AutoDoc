@@ -7,6 +7,7 @@ telas foram construidas:
     GET  /api/documentos?cat=&q=    {linhas, todos, categorias, estatisticas}
     GET  /api/eventos               SSE — um evento por documento novo
     POST /api/abrir                 abre a pasta ou o documento no sistema
+    POST /api/reclassificar         corrige a mao a categoria de um documento
 
 Roda so em 127.0.0.1: e um programa de mesa, o catalogo tem o conteudo dos
 documentos da pessoa, e nada disso tem por que estar acessivel na rede.
@@ -199,7 +200,26 @@ class Servidor:
             "pasta_saida": str(self.config.pasta_saida),
             "busca": "índice interno",
             "backup": bool(self.config.pasta_backup),
+            # Para o seletor de correcao manual: o rotulo e o que a pessoa le,
+            # a chave e o que o servidor entende.
+            "categorias_possiveis": [
+                {"chave": chave, "rotulo": rotulo} for chave, rotulo in ROTULOS.items()
+            ],
         }
+
+    def _reclassificar(self, pedido: dict) -> dict:
+        """Aplica a correcao de categoria feita na tela."""
+        ficha = self.catalogo.por_id(int(pedido.get("id", 0)))
+        if ficha is None:
+            return {"ok": False, "erro": "documento nao encontrado"}
+
+        try:
+            corrigida = self.pipeline.reclassificar(ficha, pedido.get("categoria", ""))
+        except (ValueError, OSError) as erro:
+            logger.warning("nao foi possivel corrigir %s: %s", ficha.arquivo, erro)
+            return {"ok": False, "erro": str(erro)}
+
+        return {"ok": True, "linha": self._linha(self.catalogo.como_dict(corrigida))}
 
     def _abrir(self, pedido: dict) -> dict:
         """Abre a pasta monitorada, ou um documento pelo id."""
@@ -373,5 +393,8 @@ class Rotas(SimpleHTTPRequestHandler):
 
         if rota == "/api/abrir":
             return self._json(self.servidor._abrir(corpo))
+
+        if rota == "/api/reclassificar":
+            return self._json(self.servidor._reclassificar(corpo))
 
         self._json({"erro": "rota desconhecida"}, 404)
