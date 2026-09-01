@@ -85,6 +85,67 @@ def processar_pendentes(pipeline: Pipeline) -> int:
     return total
 
 
+class _Manipulador:
+    """Traduz um evento da pasta em uma passada do pipeline.
+
+    Nao herda de `FileSystemEventHandler` de proposito. O watchdog so precisa de
+    um objeto com `dispatch()` — e uma classe comum, no nivel do modulo, pode
+    ser construida e exercitada num teste com eventos falsos, sem thread, sem
+    disco e sem esperar o sistema de arquivos avisar. Declarada dentro de
+    `criar_observador`, ela era inalcancavel de fora.
+
+    De quebra, o watchdog continua sendo dependencia opcional: nao ha import
+    dele aqui em cima.
+    """
+
+    # Os unicos eventos que interessam. Alterar e apagar arquivo ja arquivado
+    # nao passam por aqui; quem cuida disso e a reconciliacao do catalogo.
+    EVENTOS = {"created", "moved"}
+
+    def __init__(self, pipeline: Pipeline, ao_processar=None) -> None:
+        self.pipeline = pipeline
+        self.ao_processar = ao_processar
+
+    def dispatch(self, evento) -> None:
+        """Ponto de entrada que o watchdog chama."""
+        if evento.event_type not in self.EVENTOS:
+            return
+        self._tratar(evento, destino=evento.event_type == "moved")
+
+    def on_created(self, evento) -> None:
+        self._tratar(evento)
+
+    def on_moved(self, evento) -> None:
+        self._tratar(evento, destino=True)
+
+    def _tratar(self, evento, destino: bool = False) -> None:
+        if evento.is_directory:
+            return
+        # Num evento de movimento o arquivo esta no destino; usar o `src_path`
+        # apontaria para de onde ele saiu, que ja nao existe mais.
+        caminho = Path(evento.dest_path if destino else evento.src_path)
+        if deve_ignorar(caminho):
+            return
+        if not aguardar_arquivo_pronto(caminho):
+            return
+
+        try:
+            resultado = self.pipeline.processar(caminho)
+        except Exception:
+            # O observador precisa sobreviver ao arquivo que o derrubaria:
+            # perder um documento e ruim, parar de vigiar a pasta e pior.
+            logger.exception("falha ao processar %s", caminho.name)
+            return
+
+        if resultado.sucesso and self.ao_processar:
+            # Um erro no callback nao pode derrubar o observador: o
+            # monitoramento e o que faz o programa existir.
+            try:
+                self.ao_processar(resultado)
+            except Exception:
+                logger.exception("falha ao notificar documento novo")
+
+
 def criar_observador(pipeline: Pipeline, ao_processar=None):
     """Monta e inicia o observador da pasta de entrada.
 
@@ -94,48 +155,17 @@ def criar_observador(pipeline: Pipeline, ao_processar=None):
     quer bloquear e o servidor nao.
     """
     try:
-        from watchdog.events import FileSystemEventHandler
         from watchdog.observers import Observer
     except ImportError as erro:  # pragma: no cover - depende do ambiente
         raise RuntimeError(
             "watchdog nao instalado (pip install -r requirements.txt)"
         ) from erro
 
-    class Manipulador(FileSystemEventHandler):
-        def on_created(self, evento) -> None:
-            self._tratar(evento)
-
-        def on_moved(self, evento) -> None:
-            self._tratar(evento, destino=True)
-
-        def _tratar(self, evento, destino: bool = False) -> None:
-            if evento.is_directory:
-                return
-            caminho = Path(evento.dest_path if destino else evento.src_path)
-            if deve_ignorar(caminho):
-                return
-            if not aguardar_arquivo_pronto(caminho):
-                return
-
-            try:
-                resultado = pipeline.processar(caminho)
-            except Exception:
-                # O observador precisa sobreviver ao arquivo que o derrubaria:
-                # perder um documento e ruim, parar de vigiar a pasta e pior.
-                logger.exception("falha ao processar %s", caminho.name)
-                return
-
-            if resultado.sucesso and ao_processar:
-                # Um erro no callback nao pode derrubar o observador: o
-                # monitoramento e o que faz o programa existir.
-                try:
-                    ao_processar(resultado)
-                except Exception:
-                    logger.exception("falha ao notificar documento novo")
-
     observador = Observer()
     observador.schedule(
-        Manipulador(), str(pipeline.config.pasta_entrada), recursive=False
+        _Manipulador(pipeline, ao_processar),
+        str(pipeline.config.pasta_entrada),
+        recursive=False,
     )
     observador.start()
     return observador
