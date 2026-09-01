@@ -326,6 +326,20 @@ function ouvirNovidades() {
 modo = await detectarModo();
 
 if (modo === 'real') {
+  // Nada de demonstração sobrevive ao modo real. Sem isto a tela abria com os
+  // seis documentos e as estatísticas do protótipo por baixo, e quando a API
+  // falhava o `catch` só esvaziava a tabela — sobrava uma tela com números
+  // inventados e nenhuma linha, sem jeito de saber se era "ainda não há
+  // documento" ou "o servidor quebrou". É a mesma armadilha que já apareceu na
+  // pasta monitorada e no instalador.
+  Object.assign(estado, {
+    documentos: [],
+    visiveis: [],
+    categorias: [],
+    estatisticas: { arquivados: 0, hoje: 0, ocr: 0, revisar: 0 },
+    selecionado: null,
+  });
+
   // A barra lateral passa a descrever esta instalação, e não o protótipo: a
   // pasta que está mesmo sendo vigiada, o índice que a busca está usando e se
   // há backup configurado. Anunciar "sincronizado" sem backup seria mentira.
