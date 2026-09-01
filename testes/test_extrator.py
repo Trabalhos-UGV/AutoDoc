@@ -10,6 +10,7 @@ derrubar o programa.
 from __future__ import annotations
 
 import logging
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -173,6 +174,100 @@ class TestOcrDePdf(BaseArquivos):
 
         self.assertEqual(origem, "PDF digitalizado — OCR")
         self.assertIn("kWh", texto)
+
+
+class TestDependenciasAusentes(BaseArquivos):
+    """Faltar uma biblioteca só pode quebrar o formato que depende dela."""
+
+    def test_sem_pypdf_o_pdf_fica_indisponivel(self):
+        alvo = pdf_digitalizado(self.pasta / "scan.pdf")
+        with mock.patch.dict(sys.modules, {"pypdf": None}):
+            with self.assertRaises(ExtracaoIndisponivel) as erro:
+                extrair_com_origem(alvo)
+        self.assertIn("pypdf", str(erro.exception))
+
+    def test_sem_pytesseract_a_imagem_fica_indisponivel(self):
+        alvo = self.pasta / "foto.png"
+        from PIL import Image
+        Image.new("RGB", (10, 10), "white").save(alvo)
+
+        with mock.patch.dict(sys.modules, {"pytesseract": None}):
+            with self.assertRaises(ExtracaoIndisponivel) as erro:
+                extrair_com_origem(alvo)
+        self.assertIn("OCR indisponivel", str(erro.exception))
+
+    def test_o_texto_puro_continua_funcionando_sem_nenhuma_delas(self):
+        """É o ponto das dependências opcionais: o núcleo não depende delas."""
+        alvo = self.pasta / "conta.txt"
+        alvo.write_text(TEXTO_DA_CONTA, encoding="utf-8")
+
+        with mock.patch.dict(sys.modules, {"pypdf": None, "pytesseract": None}):
+            texto, origem = extrair_com_origem(alvo)
+
+        self.assertIn("kWh", texto)
+        self.assertEqual(origem, "arquivo de texto")
+
+
+class TestPaginasDefeituosas(BaseArquivos):
+    def test_uma_pagina_ruim_nao_invalida_as_outras(self):
+        boa = mock.Mock()
+        boa.extract_text.return_value = "texto da pagina boa"
+        ruim = mock.Mock()
+        ruim.extract_text.side_effect = RuntimeError("objeto corrompido")
+
+        leitor = mock.Mock(pages=[ruim, boa])
+        with mock.patch.object(extrator, "_leitor_pdf", return_value=leitor):
+            self.assertEqual(extrator._extrair_pdf(Path("qualquer.pdf")),
+                             "texto da pagina boa")
+
+    def test_imagem_que_o_pypdf_nao_decodifica_e_pulada(self):
+        pagina = mock.Mock()
+        type(pagina).images = mock.PropertyMock(side_effect=RuntimeError("filtro exotico"))
+
+        leitor = mock.Mock(pages=[pagina])
+        with mock.patch.object(extrator, "_leitor_pdf", return_value=leitor):
+            self.assertEqual(extrator._ocr_de_pdf(Path("qualquer.pdf")), "")
+
+    def test_pdf_sem_texto_e_sem_imagem(self):
+        """Um PDF só com vetores: não há o que ler nem o que passar pelo OCR."""
+        pagina = mock.Mock(images=[])
+        pagina.extract_text.return_value = ""
+        leitor = mock.Mock(pages=[pagina])
+        with mock.patch.object(extrator, "_leitor_pdf", return_value=leitor):
+            texto, origem = extrair_com_origem(Path("vazio.pdf"))
+
+        self.assertEqual(texto, "")
+        self.assertIn("sem imagem legível", origem)
+
+    def test_o_teto_de_paginas_do_ocr_e_respeitado(self):
+        """Um PDF de duzentas páginas travaria o monitoramento inteiro."""
+        paginas = [mock.Mock(images=[mock.Mock(image=None)]) for _ in range(40)]
+        leitor = mock.Mock(pages=paginas)
+
+        with mock.patch.object(extrator, "_leitor_pdf", return_value=leitor), \
+             mock.patch.object(extrator, "texto_da_imagem", return_value="x") as ocr:
+            extrator._ocr_de_pdf(Path("longo.pdf"))
+
+        self.assertEqual(ocr.call_count, extrator.PAGINAS_OCR)
+
+
+class TestOcrQueFalhaDeVez(BaseArquivos):
+    def test_erro_que_persiste_sem_idioma_vira_indisponivel(self):
+        import pytesseract
+
+        with mock.patch.object(pytesseract, "image_to_string",
+                               side_effect=pytesseract.TesseractError(1, "imagem corrompida")):
+            with self.assertRaises(ExtracaoIndisponivel) as erro:
+                extrator.texto_da_imagem(object())
+
+        self.assertIn("OCR falhou", str(erro.exception))
+
+
+class TestExtrairTexto(BaseArquivos):
+    def test_o_involucro_devolve_so_o_texto(self):
+        alvo = self.pasta / "conta.txt"
+        alvo.write_text(TEXTO_DA_CONTA, encoding="utf-8")
+        self.assertEqual(extrator.extrair_texto(alvo), extrair_com_origem(alvo)[0])
 
 
 if __name__ == "__main__":
