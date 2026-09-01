@@ -144,6 +144,18 @@ class TestRotas(BaseServidor):
             self.get("/api/inventada")
         self.assertEqual(erro.exception.code, 404)
 
+    def test_post_em_rota_desconhecida_tambem_da_404(self):
+        with self.assertRaises(urllib.error.HTTPError) as erro:
+            self.post("/api/tambem-inventada", {})
+        self.assertEqual(erro.exception.code, 404)
+
+    def test_serve_o_css_e_o_js_da_tela(self):
+        for arquivo, marca in (("/js/app.js", "ouvirNovidades"),
+                               ("/css/app.css", ".linha")):
+            with self.subTest(arquivo=arquivo):
+                with urllib.request.urlopen(self.url.rstrip("/") + arquivo) as resposta:
+                    self.assertIn(marca, resposta.read().decode("utf-8"))
+
 
 class TestAcoes(BaseServidor):
     def test_abrir_documento_inexistente(self):
@@ -392,6 +404,33 @@ class TestEventos(BaseServidor):
 
         self.servidor._anunciar(Resultado(Path("qualquer.txt"), ignorado="ja indexado"))
         self.assertTrue(fila.empty())
+
+    def test_a_tela_fechada_deixa_de_estar_inscrita(self):
+        """Fechar a janela derruba a conexão no meio de uma escrita.
+
+        Isso é comportamento normal de quem fecha um programa: o servidor
+        precisa soltar o inscrito em vez de acumular fila para sempre.
+        """
+        fluxo = urllib.request.urlopen(self.url + "api/eventos", timeout=8)
+        for _ in range(200):
+            if self.servidor._ouvintes:
+                break
+            time.sleep(0.02)
+        self.assertEqual(len(self.servidor._ouvintes), 1)
+
+        fluxo.close()
+
+        # o servidor só descobre a queda ao tentar escrever
+        linha = self.servidor.catalogo.listar(1)[0]
+        for _ in range(100):
+            with self.servidor._trava:
+                for fila in list(self.servidor._ouvintes):
+                    fila.put(self.servidor._linha(linha))
+            if not self.servidor._ouvintes:
+                break
+            time.sleep(0.05)
+
+        self.assertEqual(self.servidor._ouvintes, [])
 
     def test_o_fluxo_entrega_o_documento_pela_conexao(self):
         """O caminho de verdade: EventSource aberto, arquivo novo, linha na tela."""
