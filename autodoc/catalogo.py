@@ -20,9 +20,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from bisect import bisect_left
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
+
+from .classificador import ROTULOS, normalizar
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,10 @@ class Catalogo:
         self._fichas: dict[int, Ficha] = {}
         self._hashes: set[str] = set()
         self._proximo_id = 1
+        # palavra -> ids das fichas em que ela aparece, e a mesma lista de
+        # palavras ordenada, para achar prefixo por busca binaria.
+        self._indice: dict[str, set[int]] = {}
+        self._ordenadas: list[str] | None = None
 
         self.pasta.mkdir(parents=True, exist_ok=True)
         self.carregar()
@@ -108,6 +116,8 @@ class Catalogo:
         """
         self._fichas.clear()
         self._hashes.clear()
+        self._indice.clear()
+        self._ordenadas = None
         self._proximo_id = 1
 
         if not self.arquivo.exists():
@@ -134,6 +144,7 @@ class Catalogo:
         self._fichas[ficha.id] = ficha
         self._hashes.add(ficha.hash)
         self._proximo_id = max(self._proximo_id, ficha.id + 1)
+        self._indexar(ficha)
 
     def caminho_de(self, ficha: Ficha) -> Path:
         """O caminho absoluto do arquivo desta ficha, aqui nesta maquina."""
@@ -177,3 +188,65 @@ class Catalogo:
 
     def ja_indexado(self, hash_arquivo: str) -> bool:
         return hash_arquivo in self._hashes
+
+    # ---------------------------------------------------------- indice
+
+    def _indexar(self, ficha: Ficha) -> None:
+        """Aponta cada palavra da ficha para o id dela."""
+        for palavra in _palavras(_texto_indexavel(ficha)):
+            self._indice.setdefault(palavra, set()).add(ficha.id)
+        # A lista ordenada envelheceu; so vale a pena refaze-la na hora da
+        # busca, porque carregar o catalogo chama isto uma vez por ficha.
+        self._ordenadas = None
+
+    def _reindexar(self) -> None:
+        """Refaz o indice do zero — depois de descartar ou alterar fichas."""
+        self._indice.clear()
+        self._ordenadas = None
+        for ficha in self._fichas.values():
+            self._indexar(ficha)
+
+    def _ids_por_prefixo(self, prefixo: str) -> set[int]:
+        """Fichas que tem alguma palavra comecando por `prefixo`.
+
+        Busca binaria na lista ordenada e depois anda para a frente enquanto as
+        palavras continuarem comecando assim. E o que faz "marc" achar "marco"
+        sem achar "demarcado": a comparacao e do inicio da palavra, e nao de um
+        pedaco no meio dela como o LIKE fazia.
+        """
+        if self._ordenadas is None:
+            self._ordenadas = sorted(self._indice)
+
+        achados: set[int] = set()
+        for posicao in range(bisect_left(self._ordenadas, prefixo), len(self._ordenadas)):
+            palavra = self._ordenadas[posicao]
+            if not palavra.startswith(prefixo):
+                break
+            achados |= self._indice[palavra]
+        return achados
+
+
+def _texto_indexavel(ficha: Ficha) -> str:
+    """Tudo o que deve ser alcancavel pela busca, junto num texto so.
+
+    O rotulo entra ao lado da categoria interna para que procurar "energia"
+    ache o que esta guardado como `conta_luz`.
+    """
+    return " ".join([
+        ficha.arquivo,
+        ficha.categoria,
+        ROTULOS.get(ficha.categoria, ""),
+        ficha.data_documento or "",
+        " ".join(ficha.palavras_chave),
+        ficha.texto,
+    ])
+
+
+def _palavras(texto: str) -> set[str]:
+    """As palavras do texto, sem acento e em minusculas.
+
+    Reaproveita o `normalizar` da classificacao de proposito: buscar e
+    classificar tem que enxergar "MARCO", "março" e "Marco" como a mesma coisa,
+    e duas normalizacoes diferentes no mesmo programa acabariam discordando.
+    """
+    return {p for p in re.split(r"[^0-9a-z]+", normalizar(texto)) if p}
