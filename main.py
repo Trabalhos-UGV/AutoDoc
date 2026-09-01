@@ -82,7 +82,10 @@ def main(argv: list[str] | None = None) -> int:
     comando = args.comando or "app"
 
     if comando == "app":
-        return abrir_aplicativo(config, catalogo, args.porta)
+        # `porta` só existe quando o subcomando foi escrito. Sem isto, rodar
+        # `python main.py` sozinho — que a ajuda diz ser o mesmo que `app` —
+        # quebrava com AttributeError antes de abrir coisa alguma.
+        return abrir_aplicativo(config, catalogo, getattr(args, "porta", PORTA_PADRAO))
 
     if comando == "buscar":
         imprimir(catalogo.buscar(args.termo, args.limite))
