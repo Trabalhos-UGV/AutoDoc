@@ -249,5 +249,95 @@ class TestRotas(unittest.TestCase):
             self.assertEqual(erro.exception.code, 404)
 
 
+class TestFluxoDeEventos(TestRotas):
+    """O SSE do instalador — é por ele que a barra de progresso anda."""
+
+    def test_o_estado_chega_pela_conexao(self):
+        recebido = []
+
+        def escutar():
+            with urllib.request.urlopen(self.url + "/api/eventos", timeout=8) as fluxo:
+                for linha in fluxo:
+                    if linha.startswith(b"data: "):
+                        recebido.append(json.loads(linha[6:]))
+                        return
+
+        ouvinte = threading.Thread(target=escutar, daemon=True)
+        ouvinte.start()
+
+        for _ in range(200):
+            if self.instalador.ouvintes:
+                break
+            time.sleep(0.02)
+
+        self.instalador._emitir({"progresso": 35.0, "indice": 2})
+        ouvinte.join(timeout=8)
+
+        self.assertEqual(len(recebido), 1, "nada chegou pelo fluxo")
+        self.assertEqual(recebido[0]["progresso"], 35.0)
+
+    def test_a_tela_fechada_deixa_de_estar_inscrita(self):
+        """Fechar a janela derruba a conexão; o inscrito não pode ficar preso."""
+        fluxo = urllib.request.urlopen(self.url + "/api/eventos", timeout=8)
+        for _ in range(200):
+            if self.instalador.ouvintes:
+                break
+            time.sleep(0.02)
+        self.assertEqual(len(self.instalador.ouvintes), 1)
+
+        fluxo.close()
+        # o servidor só percebe ao tentar escrever
+        for _ in range(100):
+            self.instalador._emitir({"progresso": 1})
+            if not self.instalador.ouvintes:
+                break
+            time.sleep(0.05)
+
+        self.assertEqual(self.instalador.ouvintes, [])
+
+
+class TestMainDoInstalador(BaseInstalador):
+    """O ponto de entrada de `python -m autodoc.instalacao.principal`."""
+
+    def setUp(self):
+        super().setUp()
+        from autodoc.instalacao import principal
+
+        # `main()` liga o log no nível INFO para o processo inteiro; deixado
+        # ligado, ele despeja linha na saída de todos os testes seguintes.
+        self.enterContext(mock.patch.object(principal.logging, "basicConfig"))
+
+    def test_sobe_o_servidor_abre_a_janela_e_encerra(self):
+        from autodoc.instalacao import principal
+
+        falso = mock.MagicMock()
+        servidor = mock.Mock()
+
+        with mock.patch.dict("sys.modules", {"webview": falso}), \
+             mock.patch.object(principal, "ServidorHTTP", return_value=servidor), \
+             mock.patch.object(principal.threading, "Thread"), \
+             mock.patch("builtins.print"):
+            self.assertEqual(principal.main(), 0)
+
+        falso.create_window.assert_called_once()
+        falso.start.assert_called_once()
+        servidor.shutdown.assert_called_once()
+        servidor.server_close.assert_called_once()
+
+    def test_sem_pywebview_cai_na_janela_compartilhada(self):
+        from autodoc.instalacao import principal
+
+        servidor = mock.Mock()
+        with mock.patch.dict("sys.modules", {"webview": None}), \
+             mock.patch.object(principal, "ServidorHTTP", return_value=servidor), \
+             mock.patch.object(principal.threading, "Thread"), \
+             mock.patch.object(principal.janela, "abrir") as abriu, \
+             mock.patch("builtins.print"):
+            self.assertEqual(principal.main(), 0)
+
+        abriu.assert_called_once()
+        servidor.shutdown.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
