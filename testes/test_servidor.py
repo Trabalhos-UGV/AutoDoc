@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import shutil
 import tempfile
@@ -186,6 +187,18 @@ class TestCorrecaoPelaApi(BaseServidor):
         self.assertEqual(len(depois["linhas"]), 5, "nenhum documento se perdeu")
 
 
+class TestLinhaForaDaPasta(BaseServidor):
+    PORTA = 8927
+
+    def test_documento_fora_da_pasta_de_saida_mostra_o_caminho_inteiro(self):
+        """Pode acontecer com uma ficha antiga, de quando a saída era outra."""
+        ficha = self.catalogo.por_id(1)
+        ficha.caminho = "/outro/lugar/conta.txt"
+
+        linha = self.servidor._linha(self.catalogo.como_dict(ficha))
+        self.assertEqual(linha["destino"], "/outro/lugar/")
+
+
 class TestPortaOcupada(unittest.TestCase):
     def test_segunda_instancia_escolhe_outra_porta(self):
         """Abrir o AutoDoc com uma janela ja aberta nao pode derrubar nada."""
@@ -209,6 +222,35 @@ class TestPortaOcupada(unittest.TestCase):
 
         self.assertEqual(primeiro.iniciar(), "http://127.0.0.1:8911/")
         self.assertEqual(segundo.iniciar(), "http://127.0.0.1:8912/")
+
+    def test_erro_que_nao_e_porta_ocupada_sobe(self):
+        """Só "endereço em uso" justifica tentar outra porta."""
+        servidor_app = self.montar()
+        with mock.patch.object(servidor, "ServidorHTTP",
+                               side_effect=OSError(13, "sem permissao")):
+            with self.assertRaises(OSError) as erro:
+                servidor_app._escutar()
+        self.assertEqual(erro.exception.errno, 13)
+
+    def test_nenhuma_porta_livre(self):
+        servidor_app = self.montar()
+        ocupada = OSError(errno.EADDRINUSE, "endereco em uso")
+
+        with mock.patch.object(servidor, "ServidorHTTP", side_effect=ocupada):
+            with self.assertRaises(OSError) as erro:
+                servidor_app._escutar()
+
+        self.assertIn("nenhuma porta livre", str(erro.exception))
+
+    def montar(self) -> Servidor:
+        temporaria = tempfile.TemporaryDirectory()
+        self.addCleanup(temporaria.cleanup)
+        base = Path(temporaria.name)
+
+        config = Config(pasta_entrada=base / "entrada", pasta_saida=base / "saida")
+        config.preparar_pastas()
+        catalogo = Catalogo(config.pasta_saida)
+        return Servidor(config, catalogo, Pipeline(config, catalogo), porta=8951)
 
 
 class TestFormatarData(unittest.TestCase):

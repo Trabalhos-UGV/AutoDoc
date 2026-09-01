@@ -263,6 +263,36 @@ class TestOcrQueFalhaDeVez(BaseArquivos):
         self.assertIn("OCR falhou", str(erro.exception))
 
 
+class TestImagem(BaseArquivos):
+    def test_imagem_valida_passa_pelo_ocr(self):
+        from PIL import Image
+
+        alvo = self.pasta / "recibo.png"
+        Image.new("RGB", (60, 30), "white").save(alvo)
+
+        with mock.patch.object(extrator, "texto_da_imagem",
+                               return_value="RECIBO 12/03/2026") as ocr:
+            texto, origem = extrair_com_origem(alvo)
+
+        ocr.assert_called_once()
+        self.assertEqual(origem, "imagem — OCR")
+        self.assertIn("RECIBO", texto)
+
+
+class TestErroDoSistemaDeArquivos(BaseArquivos):
+    def test_erro_de_leitura_do_pdf_sobe_como_oserror(self):
+        """Sem permissão não é "PDF ilegível": o pipeline trata os dois, mas o
+        motivo que chega na tela tem que ser o verdadeiro."""
+        alvo = self.pasta / "trancado.pdf"
+        alvo.write_bytes(b"%PDF-1.4")
+
+        with mock.patch("pypdf.PdfReader", side_effect=OSError("sem permissao")):
+            with self.assertRaises(OSError) as erro:
+                extrator._leitor_pdf(alvo)
+
+        self.assertNotIsInstance(erro.exception, ExtracaoIndisponivel)
+
+
 class TestExtrairTexto(BaseArquivos):
     def test_o_involucro_devolve_so_o_texto(self):
         alvo = self.pasta / "conta.txt"

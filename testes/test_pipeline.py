@@ -13,6 +13,7 @@ from autodoc import pipeline as pipeline_modulo
 from autodoc.catalogo import PASTA_DUPLICADOS, PASTA_REVISAO, Catalogo
 from autodoc.classificador import NAO_CLASSIFICADO
 from autodoc.config import Config
+from autodoc.extrator import ExtracaoIndisponivel
 from autodoc.pipeline import Pipeline
 
 EXEMPLOS = Path(__file__).resolve().parent.parent / "exemplos"
@@ -323,6 +324,78 @@ class TestFalhasAoMover(BasePipeline):
 
         # a ficha acompanha a decisão mesmo sem o arquivo
         self.assertEqual(corrigida.categoria, "contrato")
+
+
+class TestDocumentoIlegivel(BasePipeline):
+    """Não deu para ler: o arquivo não pode ficar preso na pasta de entrada.
+
+    Deixado ali, ele seria reexaminado a cada abertura do programa e ninguém
+    saberia que existe.
+    """
+
+    def processar_ilegivel(self, motivo="Tesseract nao esta instalado"):
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+        with mock.patch.object(pipeline_modulo, "extrair_com_origem",
+                               side_effect=ExtracaoIndisponivel(motivo)), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            return self.pipeline.processar(alvo)
+
+    def test_vai_para_revisao(self):
+        resultado = self.processar_ilegivel()
+
+        self.assertTrue(resultado.sucesso)
+        self.assertEqual(resultado.categoria, NAO_CLASSIFICADO)
+        self.assertEqual(resultado.destino.parent.name, PASTA_REVISAO)
+
+    def test_a_pasta_de_entrada_esvazia(self):
+        self.processar_ilegivel()
+        self.assertTrue(self.entrada_vazia)
+
+    def test_o_motivo_fica_escrito_na_ficha(self):
+        resultado = self.processar_ilegivel("Tesseract nao esta instalado")
+
+        self.assertIn("Tesseract", resultado.documento.regra)
+        self.assertIn("não foi possível ler", resultado.documento.regra)
+        self.assertEqual(resultado.documento.confianca, 0.0)
+
+    def test_o_motivo_aparece_no_trajeto(self):
+        resultado = self.processar_ilegivel("PDF ilegível: arquivo truncado")
+        extracao = resultado.documento.etapas[1]
+
+        self.assertEqual(extracao["titulo"], "Extração de texto")
+        self.assertIn("truncado", extracao["detalhe"])
+
+    def test_erro_do_sistema_de_arquivos_tambem_conta(self):
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+        with mock.patch.object(pipeline_modulo, "extrair_com_origem",
+                               side_effect=OSError("sem permissao")), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            resultado = self.pipeline.processar(alvo)
+
+        self.assertEqual(resultado.categoria, NAO_CLASSIFICADO)
+        self.assertIn("sem permissao", resultado.documento.regra)
+
+
+class TestNomeLivre(BasePipeline):
+    def test_terceira_colisao_vira_3(self):
+        pasta = self.config.pasta_saida / "conta_luz"
+        pasta.mkdir(parents=True)
+        for nome in ("a.txt", "a (2).txt"):
+            (pasta / nome).write_text("ocupado", encoding="utf-8")
+
+        self.assertEqual(self.pipeline._nome_livre(pasta / "a.txt").name, "a (3).txt")
+
+
+class TestBackupDeRevisao(BasePipeline):
+    def test_o_backup_usa_a_mesma_pasta_de_revisao(self):
+        """Para o backup não virar uma organização paralela e diferente."""
+        self.config.pasta_backup = self.base / "drive"
+        self.config.preparar_pastas()
+
+        self.pipeline.processar(self.largar_exemplo("scan0031_ilegivel.txt"))
+
+        self.assertTrue(
+            (self.config.pasta_backup / PASTA_REVISAO / "scan0031_ilegivel.txt").exists())
 
 
 class TestAnalisar(BasePipeline):

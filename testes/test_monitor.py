@@ -334,6 +334,16 @@ class TestDispatch(BaseComPasta):
         self.assertEqual(len(self.catalogo), 0)
 
 
+class TestWatchdogAusente(BaseComPasta):
+    def test_sem_watchdog_explica_o_que_instalar(self):
+        """É a única dependência sem a qual o AutoDoc não tem como funcionar."""
+        with mock.patch.dict("sys.modules", {"watchdog.observers": None}):
+            with self.assertRaises(RuntimeError) as erro:
+                monitor.criar_observador(self.pipeline)
+
+        self.assertIn("requirements.txt", str(erro.exception))
+
+
 class TestMonitorar(unittest.TestCase):
     """O laço do `python main.py monitorar`."""
 
