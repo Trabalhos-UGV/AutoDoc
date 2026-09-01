@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
+from autodoc import pipeline as pipeline_modulo
 from autodoc.catalogo import PASTA_DUPLICADOS, PASTA_REVISAO, Catalogo
 from autodoc.classificador import NAO_CLASSIFICADO
 from autodoc.config import Config
@@ -230,6 +233,129 @@ class TestBackup(BasePipeline):
 
         self.assertTrue(resultado.sucesso)
         self.assertTrue(resultado.destino.exists())
+
+
+class TestFormatacao(unittest.TestCase):
+    """Números que vão para a tela, e por isso são lidos por gente."""
+
+    def test_tamanho_em_bytes_kilobytes_e_megabytes(self):
+        from autodoc.pipeline import _formatar_tamanho
+
+        self.assertEqual(_formatar_tamanho(512), "512 B")
+        self.assertEqual(_formatar_tamanho(1023), "1023 B")
+        self.assertEqual(_formatar_tamanho(2048), "2 KB")
+        self.assertEqual(_formatar_tamanho(3 * 1024 * 1024), "3,0 MB")
+
+    def test_o_tamanho_usa_virgula_como_se_escreve_em_portugues(self):
+        from autodoc.pipeline import _formatar_tamanho
+
+        self.assertIn(",", _formatar_tamanho(int(1.5 * 1024 * 1024)))
+
+    def test_trecho_curto_sai_inteiro(self):
+        from autodoc.pipeline import _trecho
+
+        self.assertEqual(_trecho("conta de luz"), "conta de luz")
+
+    def test_trecho_junta_os_espacos(self):
+        from autodoc.pipeline import _trecho
+
+        self.assertEqual(_trecho("conta   de\n\n luz"), "conta de luz")
+
+    def test_trecho_comprido_e_cortado_numa_palavra_inteira(self):
+        from autodoc.pipeline import TAMANHO_TRECHO, _trecho
+
+        cortado = _trecho("palavra " * 100)
+        self.assertTrue(cortado.endswith("…"))
+        self.assertLessEqual(len(cortado), TAMANHO_TRECHO + 1)
+        self.assertNotIn("palavr…", cortado, "não pode cortar no meio da palavra")
+
+
+class TestDocumentoSemData(BasePipeline):
+    def test_vai_para_sem_data(self):
+        """Nem o texto nem o arquivo deram data: o documento não some."""
+        alvo = self.config.pasta_entrada / "contrato_sem_data.txt"
+        alvo.write_text("CONTRATO DE LOCACAO\nCLAUSULA PRIMEIRA\nLOCADOR\n"
+                        "LOCATARIO\nForo da comarca", encoding="utf-8")
+
+        with mock.patch.object(pipeline_modulo.Pipeline, "_resolver_data",
+                               return_value=(None, "nenhuma data encontrada")):
+            resultado = self.pipeline.processar(alvo)
+
+        self.assertEqual(resultado.destino.parent.name, "sem-data")
+        self.assertTrue(resultado.destino.exists())
+
+
+class TestCaminhoRelativo(BasePipeline):
+    def test_destino_fora_da_pasta_de_saida_sai_absoluto(self):
+        """Pode acontecer se alguém trocar a pasta de saída com documentos já fichados."""
+        fora = self.base / "outro" / "lugar" / "arquivo.txt"
+        self.assertEqual(self.pipeline._relativo(fora), str(fora.parent) + "/")
+
+
+class TestFalhasAoMover(BasePipeline):
+    def test_recolher_que_falha_devolve_nada_sem_derrubar(self):
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+
+        with mock.patch.object(pipeline_modulo.shutil, "move",
+                               side_effect=OSError("disco cheio")), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            self.assertIsNone(self.pipeline._recolher(alvo, "_Duplicados"))
+
+    def test_arquivo_ilegivel_no_hash_e_avisado(self):
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+
+        with mock.patch.object(pipeline_modulo, "hash_arquivo",
+                               side_effect=OSError("sem permissao")), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            resultado = self.pipeline.processar(alvo)
+
+        self.assertFalse(resultado.sucesso)
+        self.assertIn("ilegivel", resultado.ignorado)
+
+    def test_corrigir_documento_cujo_arquivo_sumiu(self):
+        """Alguém apagou no Finder entre a tela carregar e o clique."""
+        self.pipeline.processar(self.largar_exemplo("scan0031_ilegivel.txt"))
+        ficha = self.catalogo.por_id(1)
+        self.catalogo.caminho_de(ficha).unlink()
+
+        with self.assertLogs("autodoc.pipeline", "WARNING"):
+            corrigida = self.pipeline.reclassificar(ficha, "contrato")
+
+        # a ficha acompanha a decisão mesmo sem o arquivo
+        self.assertEqual(corrigida.categoria, "contrato")
+
+
+class TestAnalisar(BasePipeline):
+    """A releitura que a reconciliação usa — sem mover nada."""
+
+    def test_le_e_classifica_sem_mover(self):
+        destino = self.config.pasta_saida / "conta_luz" / "2026" / "03"
+        destino.mkdir(parents=True)
+        alvo = destino / "conta_energia_marco.txt"
+        alvo.write_text((EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8"),
+                        encoding="utf-8")
+
+        ficha = self.pipeline.analisar(alvo)
+
+        self.assertEqual(ficha.categoria, "conta_luz")
+        self.assertTrue(alvo.exists(), "não pode ter sido movido")
+        self.assertEqual(ficha.etapas[0]["titulo"], "Releitura")
+
+    def test_arquivo_ilegivel_vira_ficha_com_o_motivo(self):
+        alvo = self.config.pasta_saida / "quebrado.pdf"
+        alvo.write_bytes(b"isto nao e um PDF")
+
+        # o pypdf reclama no log dele ao ver o arquivo torto; é o esperado aqui
+        pypdf = logging.getLogger("pypdf")
+        nivel = pypdf.level
+        pypdf.setLevel(logging.CRITICAL)
+        self.addCleanup(pypdf.setLevel, nivel)
+
+        with self.assertLogs("autodoc.pipeline", "WARNING"):
+            ficha = self.pipeline.analisar(alvo)
+
+        self.assertEqual(ficha.texto, "")
+        self.assertIn("nao foi possivel ler", ficha.origem)
 
 
 if __name__ == "__main__":
