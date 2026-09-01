@@ -2,8 +2,8 @@
 
 Sao as mesmas seis que a tela desenha, e todas fazem trabalho de verdade:
 procurar o Python, criar o ambiente virtual, instalar as dependencias, achar o
-Tesseract, criar o banco e registrar a pasta monitorada — mais o atalho no
-sistema, que e o que faz o programa ficar instalado em vez de so rodar.
+Tesseract, preparar a pasta organizada e registrar a pasta monitorada — mais o
+atalho no sistema, que e o que faz o programa ficar instalado em vez de so rodar.
 
 A instalacao e **idempotente**: rodar de novo verifica o que ja existe e so
 refaz o que falta. Um instalador que quebra quando ja foi rodado uma vez e um
@@ -15,7 +15,6 @@ transforma isso em eventos para a tela.
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import sys
@@ -24,8 +23,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from ..catalogo import PASTA_CATALOGO, Catalogo
 from ..config import CAMINHO_CONFIG, Config
-from ..db import Banco
 from . import atalho
 
 RAIZ = Path(__file__).resolve().parent.parent.parent
@@ -127,41 +126,43 @@ def configurar_ocr(estado: dict) -> Iterator[str]:
     estado["detalhe"] = "Tesseract pronto para ler imagens"
 
 
-def criar_banco(estado: dict) -> Iterator[str]:
+def preparar_catalogo(estado: dict, pasta_entrada: Path) -> Iterator[str]:
+    """Prepara a pasta organizada — que e onde o AutoDoc guarda o que sabe.
+
+    Nao ha banco de dados para criar. O que existe e uma pasta com os
+    documentos e um caderno de fichas dentro dela, e essa etapa so garante que
+    a pasta existe e le o que ja estiver la.
+    """
     config = Config.carregar()
-    yield f"sqlite3 {config.banco.name}"
+    config.pasta_entrada = pasta_entrada
+    config.pasta_saida = config.saida_ao_lado()
+    config.preparar_pastas()
+    yield f"pasta organizada: {config.pasta_saida}"
 
-    banco = Banco(config.banco)
-    if banco.tem_busca:
-        yield "CREATE VIRTUAL TABLE documentos_busca USING fts5(...)"
-        estado["detalhe"] = f"{config.banco.name} + índice FTS5"
-    else:
-        yield "FTS5 indisponível neste SQLite; a busca vai usar LIKE"
-        estado["detalhe"] = f"{config.banco.name} criado"
+    catalogo = Catalogo(config.pasta_saida)
+    yield f"caderno de fichas em {PASTA_CATALOGO}/{catalogo.arquivo.name}"
 
-    quantos = len(banco.listar(1))
-    yield "banco pronto" if not quantos else "banco já tinha documentos indexados"
+    # A pasta manda: se ja houver documentos arquivados ali, eles voltam para o
+    # catalogo sozinhos — inclusive numa reinstalacao por cima da anterior.
+    resumo = catalogo.reconciliar()
+    if resumo["recuperadas"]:
+        yield f"{resumo['recuperadas']} documento(s) ja arquivado(s) reconhecido(s)"
+    yield f"{len(catalogo)} documento(s) no catálogo"
+    estado["detalhe"] = f"{config.pasta_saida.name}/ pronta, sem banco de dados"
 
 
 def definir_pasta(estado: dict, pasta_entrada: Path) -> Iterator[str]:
     config = Config.carregar()
     config.pasta_entrada = pasta_entrada
+    # A saida acompanha a entrada escolhida, e nao a que estava no config
+    # anterior — senao trocar de pasta monitorada deixaria os documentos novos
+    # indo para o lugar antigo.
+    config.pasta_saida = config.saida_ao_lado()
     config.preparar_pastas()
     yield f"pasta monitorada: {pasta_entrada}"
+    yield f"pasta organizada: {config.pasta_saida}"
 
-    CAMINHO_CONFIG.write_text(
-        json.dumps(
-            {
-                "pasta_entrada": str(config.pasta_entrada),
-                "pasta_saida": str(config.pasta_saida),
-                "pasta_backup": str(config.pasta_backup) if config.pasta_backup else None,
-                "banco": str(config.banco),
-                "extensoes": list(config.extensoes),
-            },
-            ensure_ascii=False, indent=2,
-        ),
-        encoding="utf-8",
-    )
+    config.salvar(CAMINHO_CONFIG)
     yield f"configuração gravada em {CAMINHO_CONFIG.name}"
 
     resultado = atalho.criar()
@@ -174,7 +175,7 @@ PASSOS = [
     ("Criando ambiente virtual", criar_ambiente_virtual),
     ("Instalando dependências", instalar_dependencias),
     ("Configurando motor de OCR", configurar_ocr),
-    ("Criando banco de dados", criar_banco),
+    ("Preparando a pasta organizada", preparar_catalogo),
     ("Definindo pasta monitorada", definir_pasta),
 ]
 
@@ -221,9 +222,11 @@ class Instalacao:
 
             estado: dict = {"detalhe": ""}
             try:
+                # As duas ultimas etapas precisam saber qual pasta foi
+                # escolhida; as outras se viram com o ambiente.
                 gerador = (
                     funcao(estado, self.pasta_entrada)
-                    if funcao is definir_pasta
+                    if funcao in (preparar_catalogo, definir_pasta)
                     else funcao(estado)
                 )
                 for mensagem in gerador:
