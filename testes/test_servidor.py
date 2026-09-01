@@ -5,15 +5,19 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 from autodoc import monitor
 from autodoc.catalogo import Catalogo
 from autodoc.config import Config
-from autodoc.pipeline import Pipeline
+from autodoc.pipeline import Pipeline, Resultado
+from autodoc.web import servidor
 from autodoc.web.servidor import Servidor
 
 EXEMPLOS = Path(__file__).resolve().parent.parent / "exemplos"
@@ -205,6 +209,206 @@ class TestPortaOcupada(unittest.TestCase):
 
         self.assertEqual(primeiro.iniciar(), "http://127.0.0.1:8911/")
         self.assertEqual(segundo.iniciar(), "http://127.0.0.1:8912/")
+
+
+class TestFormatarData(unittest.TestCase):
+    def test_iso_vira_formato_brasileiro(self):
+        self.assertEqual(servidor._formatar_data("2026-03-12"), "12/03/2026")
+
+    def test_sem_data(self):
+        self.assertEqual(servidor._formatar_data(None), "—")
+        self.assertEqual(servidor._formatar_data(""), "—")
+
+    def test_data_estranha_volta_como_esta(self):
+        """Uma ficha antiga ou mexida à mão não pode quebrar a listagem."""
+        self.assertEqual(servidor._formatar_data("marco de 2026"), "marco de 2026")
+
+
+class TestAbrirNoSistema(unittest.TestCase):
+    """Entregar o caminho ao gerenciador de arquivos de cada sistema."""
+
+    def setUp(self):
+        self._temporaria = tempfile.TemporaryDirectory()
+        self.pasta = Path(self._temporaria.name)
+        self.alvo = self.pasta / "conta.pdf"
+        self.alvo.write_text("documento", encoding="utf-8")
+        self.addCleanup(self._temporaria.cleanup)
+
+    def comando_de(self, plataforma, revelar=False):
+        with mock.patch.object(servidor.sys, "platform", plataforma), \
+             mock.patch.object(servidor.subprocess, "Popen") as abriu:
+            self.assertTrue(servidor.abrir_no_sistema(self.alvo, revelar=revelar))
+        return abriu.call_args.args[0]
+
+    def test_macos_abre_o_arquivo(self):
+        self.assertEqual(self.comando_de("darwin"), ["open", str(self.alvo)])
+
+    def test_macos_revela_na_pasta(self):
+        self.assertEqual(self.comando_de("darwin", revelar=True),
+                         ["open", "-R", str(self.alvo)])
+
+    def test_windows_abre_o_arquivo(self):
+        self.assertEqual(self.comando_de("win32")[:3], ["cmd", "/c", "start"])
+
+    def test_windows_seleciona_na_pasta(self):
+        self.assertEqual(self.comando_de("win32", revelar=True),
+                         ["explorer", f"/select,{self.alvo}"])
+
+    def test_linux_abre_o_arquivo(self):
+        self.assertEqual(self.comando_de("linux"), ["xdg-open", str(self.alvo)])
+
+    def test_linux_revela_abrindo_a_pasta(self):
+        """Não há "revelar" universal no Linux; a pasta é o mais próximo."""
+        self.assertEqual(self.comando_de("linux", revelar=True),
+                         ["xdg-open", str(self.pasta)])
+
+    def test_caminho_inexistente_nao_chama_nada(self):
+        with mock.patch.object(servidor.subprocess, "Popen") as abriu:
+            self.assertFalse(servidor.abrir_no_sistema(self.pasta / "nao-existe"))
+        abriu.assert_not_called()
+
+    def test_falha_do_sistema_vira_falso(self):
+        with mock.patch.object(servidor.subprocess, "Popen",
+                               side_effect=OSError("sem permissao")), \
+             self.assertLogs("autodoc.web.servidor", "ERROR"):
+            self.assertFalse(servidor.abrir_no_sistema(self.alvo))
+
+
+class TestHandleError(unittest.TestCase):
+    """Fechar a janela derruba o SSE no meio; isso é normal, não defeito."""
+
+    def manipular(self, excecao):
+        http = servidor.ServidorHTTP.__new__(servidor.ServidorHTTP)
+        with mock.patch.object(servidor.sys, "exc_info",
+                               return_value=(type(excecao), excecao, None)), \
+             mock.patch.object(servidor.ThreadingHTTPServer, "handle_error") as padrao:
+            http.handle_error(None, ("127.0.0.1", 1234))
+        return padrao
+
+    def test_conexao_derrubada_e_silenciosa(self):
+        for excecao in (BrokenPipeError(), ConnectionResetError()):
+            with self.subTest(excecao=type(excecao).__name__):
+                self.manipular(excecao).assert_not_called()
+
+    def test_erro_de_verdade_continua_aparecendo(self):
+        self.manipular(ValueError("defeito de verdade")).assert_called_once()
+
+
+class TestEventos(BaseServidor):
+    """O SSE — o que faz a linha aparecer sozinha quando um arquivo cai na pasta."""
+
+    PORTA = 8921
+
+    def test_inscrever_e_desinscrever(self):
+        fila = self.servidor._inscrever()
+        self.assertIn(fila, self.servidor._ouvintes)
+
+        self.servidor._desinscrever(fila)
+        self.assertNotIn(fila, self.servidor._ouvintes)
+
+    def test_desinscrever_duas_vezes_nao_quebra(self):
+        fila = self.servidor._inscrever()
+        self.servidor._desinscrever(fila)
+        self.servidor._desinscrever(fila)
+
+    def test_anuncia_o_documento_que_chegou(self):
+        """E não "o primeiro da listagem": ela ordena por data do documento, então
+        uma conta de 2019 processada agora faria a tela anunciar outro arquivo."""
+        fila = self.servidor._inscrever()
+        self.addCleanup(self.servidor._desinscrever, fila)
+
+        antiga = self.config.pasta_entrada / "conta_antiga.txt"
+        antiga.write_text(
+            "CEMIG\nConsumo faturado: 90 kWh\nBandeira tarifaria: verde\n"
+            "VENCIMENTO 12/03/2019\nTOTAL A PAGAR R$ 90,00", encoding="utf-8")
+        resultado = self.pipeline.processar(antiga)
+        self.servidor._anunciar(resultado)
+
+        anunciada = fila.get(timeout=2)
+        self.assertEqual(anunciada["arquivo"], "conta_antiga.txt")
+        self.assertEqual(anunciada["data"], "12/03/2019")
+
+    def test_duas_telas_abertas_recebem_o_mesmo_documento(self):
+        """Uma fila só faria o documento aparecer em uma janela apenas."""
+        uma = self.servidor._inscrever()
+        outra = self.servidor._inscrever()
+        self.addCleanup(self.servidor._desinscrever, uma)
+        self.addCleanup(self.servidor._desinscrever, outra)
+
+        novo = self.config.pasta_entrada / "boleto_sse.txt"
+        novo.write_text(
+            "BOLETO BANCARIO\nLinha digitavel: 34191.79001\nCedente: Imobiliaria\n"
+            "Nosso numero: 991\nVencimento: 25/05/2026", encoding="utf-8")
+        self.servidor._anunciar(self.pipeline.processar(novo))
+
+        self.assertEqual(uma.get(timeout=2)["arquivo"], "boleto_sse.txt")
+        self.assertEqual(outra.get(timeout=2)["arquivo"], "boleto_sse.txt")
+
+    def test_resultado_sem_documento_nao_anuncia_nada(self):
+        fila = self.servidor._inscrever()
+        self.addCleanup(self.servidor._desinscrever, fila)
+
+        self.servidor._anunciar(Resultado(Path("qualquer.txt"), ignorado="ja indexado"))
+        self.assertTrue(fila.empty())
+
+    def test_o_fluxo_entrega_o_documento_pela_conexao(self):
+        """O caminho de verdade: EventSource aberto, arquivo novo, linha na tela."""
+        recebido = []
+
+        def escutar():
+            with urllib.request.urlopen(self.url + "api/eventos", timeout=8) as fluxo:
+                for linha in fluxo:
+                    if linha.startswith(b"data: "):
+                        recebido.append(json.loads(linha[6:]))
+                        return
+
+        ouvinte = threading.Thread(target=escutar, daemon=True)
+        ouvinte.start()
+
+        # espera o servidor registrar a inscrição antes de processar
+        for _ in range(100):
+            if self.servidor._ouvintes:
+                break
+            time.sleep(0.02)
+
+        novo = self.config.pasta_entrada / "comprovante_sse.txt"
+        novo.write_text(
+            "COMPROVANTE DE PAGAMENTO\nPIX\nID da transacao: 7781\n"
+            "Chave PIX: fulano@exemplo.br\nData: 04/04/2026", encoding="utf-8")
+        self.servidor._anunciar(self.pipeline.processar(novo))
+
+        ouvinte.join(timeout=8)
+        self.assertEqual(len(recebido), 1, "nada chegou pelo fluxo")
+        self.assertEqual(recebido[0]["arquivo"], "comprovante_sse.txt")
+        self.assertEqual(recebido[0]["tipo"], "Comprovante")
+
+
+class TestAbrirPelaApi(BaseServidor):
+    PORTA = 8925
+
+    def test_sem_id_abre_a_pasta_monitorada(self):
+        with mock.patch.object(servidor, "abrir_no_sistema", return_value=True) as abriu:
+            resposta = self.post("/api/abrir", {})
+
+        self.assertTrue(resposta["aberto"])
+        self.assertEqual(resposta["alvo"], str(self.config.pasta_entrada))
+        self.assertEqual(abriu.call_args.args[0], self.config.pasta_entrada)
+
+    def test_com_id_abre_o_documento(self):
+        alvo = self.get("/api/documentos")["linhas"][0]
+        with mock.patch.object(servidor, "abrir_no_sistema", return_value=True) as abriu:
+            resposta = self.post("/api/abrir", {"id": alvo["id"]})
+
+        self.assertTrue(resposta["aberto"])
+        self.assertIn(alvo["arquivo"], resposta["alvo"])
+        self.assertFalse(abriu.call_args.kwargs["revelar"])
+
+    def test_revelar_pede_para_mostrar_na_pasta(self):
+        alvo = self.get("/api/documentos")["linhas"][0]
+        with mock.patch.object(servidor, "abrir_no_sistema", return_value=True) as abriu:
+            self.post("/api/abrir", {"id": alvo["id"], "revelar": True})
+
+        self.assertTrue(abriu.call_args.kwargs["revelar"])
 
 
 if __name__ == "__main__":
