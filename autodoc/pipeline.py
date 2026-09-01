@@ -1,7 +1,7 @@
 """Pipeline de processamento de um documento.
 
 Fluxo: extrai texto -> classifica -> extrai data -> arquiva em
-<saida>/<categoria>/<ano>/<mes>/ -> indexa no banco -> copia para o backup.
+<saida>/<categoria>/<ano>/<mes>/ -> ficha no catalogo -> copia para o backup.
 
 Cada passo registra o que fez. Esse registro — o "trajeto do arquivo" — e o que
 a tela mostra quando alguem quer entender por que um documento foi parar onde
@@ -17,16 +17,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .catalogo import PASTA_REVISAO, Catalogo, Ficha
 from .classificador import NAO_CLASSIFICADO, Classificacao, classificar
 from .config import Config
 from .datas import data_de_modificacao, extrair_data_rotulada, extrair_datas
-from .db import Banco, Documento
 from .extrator import ExtracaoIndisponivel, extrair_com_origem, hash_arquivo
 
 logger = logging.getLogger(__name__)
-
-# Pasta para onde vai o que o classificador nao teve confianca de classificar.
-PASTA_REVISAO = "_Revisar"
 
 # Quanto do texto lido aparece no painel "trecho lido do documento".
 TAMANHO_TRECHO = 220
@@ -41,7 +38,7 @@ class Resultado:
     data: str | None = None
     destino: Path | None = None
     ignorado: str | None = None
-    documento: Documento | None = None
+    documento: Ficha | None = None
     etapas: list[dict[str, str]] = field(default_factory=list)
 
     @property
@@ -68,16 +65,16 @@ def _formatar_tamanho(bytes_: int) -> str:
 class Pipeline:
     """Orquestra a leitura, classificacao e arquivamento dos documentos."""
 
-    def __init__(self, config: Config, banco: Banco) -> None:
+    def __init__(self, config: Config, catalogo: Catalogo) -> None:
         self.config = config
-        self.banco = banco
+        self.catalogo = catalogo
 
     def processar(self, caminho: Path) -> Resultado:
         if caminho.suffix.lower() not in self.config.extensoes:
             return Resultado(caminho, ignorado="extensao nao monitorada")
 
         assinatura = hash_arquivo(caminho)
-        if self.banco.ja_indexado(assinatura):
+        if self.catalogo.ja_indexado(assinatura):
             return Resultado(caminho, ignorado="ja indexado")
 
         tamanho = caminho.stat().st_size
@@ -121,9 +118,9 @@ class Pipeline:
             "detalhe": f"movido para {relativo} e indexado na busca",
         })
 
-        documento = Documento(
+        documento = Ficha(
             arquivo=caminho.name,
-            caminho=str(destino),
+            caminho=self.catalogo.relativo(destino),
             categoria=classificacao.categoria,
             data_documento=data,
             texto=texto,
@@ -136,7 +133,7 @@ class Pipeline:
             origem=origem,
             tamanho=tamanho,
         )
-        self.banco.inserir(documento)
+        self.catalogo.inserir(documento)
         self._fazer_backup(destino, classificacao)
 
         logger.info(
@@ -150,6 +147,46 @@ class Pipeline:
             destino=destino,
             documento=documento,
             etapas=etapas,
+        )
+
+    def analisar(self, caminho: Path) -> Ficha | None:
+        """Le e classifica um arquivo **sem mover nada**.
+
+        E o que o catalogo pede quando encontra, na pasta organizada, um
+        documento que ele nao conhece: alguem arrastou o arquivo para la a mao,
+        ou o caderno de fichas foi apagado. Nos dois casos o arquivo ja esta no
+        lugar que alguem escolheu — o que falta e saber o que ele diz.
+        """
+        try:
+            texto, origem = extrair_com_origem(caminho)
+        except (ExtracaoIndisponivel, OSError) as erro:
+            logger.warning("nao foi possivel reler %s: %s", caminho.name, erro)
+            texto, origem = "", f"nao foi possivel ler: {erro}"
+
+        classificacao = classificar(texto)
+        data, detalhe_data = self._resolver_data(texto, caminho)
+
+        return Ficha(
+            arquivo=caminho.name,
+            caminho=self.catalogo.relativo(caminho),
+            categoria=classificacao.categoria,
+            data_documento=data,
+            texto=texto,
+            hash=hash_arquivo(caminho),
+            confianca=classificacao.confianca,
+            regra=classificacao.regra,
+            palavras_chave=classificacao.chaves,
+            trecho=_trecho(texto),
+            etapas=[
+                {"titulo": "Releitura", "detalhe":
+                 "documento encontrado na pasta organizada e fichado de novo"},
+                {"titulo": "Extração de texto",
+                 "detalhe": f"{origem} · {len(texto)} caracteres lidos"},
+                {"titulo": "Classificação", "detalhe": classificacao.regra},
+                {"titulo": "Data", "detalhe": detalhe_data},
+            ],
+            origem=origem,
+            tamanho=caminho.stat().st_size,
         )
 
     @staticmethod
