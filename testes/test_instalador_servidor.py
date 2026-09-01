@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 from autodoc import config as modulo_config
+from autodoc.config import Config
 from autodoc.instalacao import atalho, instalador as modulo_instalador
 from autodoc.instalacao.principal import Instalador, RotasInstalador
 from autodoc.web.servidor import ServidorHTTP
@@ -31,6 +32,13 @@ class BaseInstalador(unittest.TestCase):
         self.addCleanup(self._temporaria.cleanup)
 
         self.config_json = self.base / "config.json"
+        # O config precisa **existir** apontando para a pasta temporária. Sem
+        # isto, todo `Config.carregar()` cai nos padrões — que são as pastas de
+        # documentos de quem está rodando os testes — e `concluir()`, que relê o
+        # config do disco, criava pastas de verdade na casa da pessoa.
+        Config(pasta_entrada=self.base / "entrada",
+               pasta_saida=self.base / "organizados").salvar(self.config_json)
+
         self.enterContext(mock.patch.object(
             modulo_config, "CAMINHO_CONFIG", self.config_json))
         self.enterContext(mock.patch.object(
@@ -157,6 +165,42 @@ class TestConcluir(BaseInstalador):
         servidor.iniciar.assert_called_once()
 
 
+class TestConcluirUsaOConfig(BaseInstalador):
+    """`concluir()` relê o config do disco — e tem que respeitar o que está lá.
+
+    Enquanto não respeitava, ele caía nos padrões e criava
+    `~/Documentos/AutoDoc/` na casa de quem estivesse rodando, mesmo num teste.
+    """
+
+    def test_sobe_o_app_nas_pastas_configuradas(self):
+        from autodoc.web import servidor as modulo_servidor
+
+        capturado = {}
+
+        def espiar(config, catalogo, pipeline, porta):
+            capturado["entrada"] = config.pasta_entrada
+            capturado["saida"] = config.pasta_saida
+            return mock.Mock()
+
+        with mock.patch.object(modulo_servidor, "Servidor", espiar):
+            self.instalador.concluir()
+
+        self.assertEqual(capturado["entrada"], self.base / "entrada")
+        self.assertEqual(capturado["saida"], self.base / "organizados")
+
+    def test_nao_cria_pasta_fora_da_configurada(self):
+        from autodoc.web import servidor as modulo_servidor
+
+        padrao = Config().pasta_entrada
+        existia = padrao.exists()
+
+        with mock.patch.object(modulo_servidor, "Servidor", return_value=mock.Mock()):
+            self.instalador.concluir()
+
+        self.assertEqual(padrao.exists(), existia,
+                         f"{padrao} não pode ter sido criada por um teste")
+
+
 class TestRotas(unittest.TestCase):
     """A API do instalador, exercitada por HTTP de verdade."""
 
@@ -165,6 +209,8 @@ class TestRotas(unittest.TestCase):
         cls._temporaria = tempfile.TemporaryDirectory()
         base = Path(cls._temporaria.name)
         cls.config_json = base / "config.json"
+        Config(pasta_entrada=base / "entrada",
+               pasta_saida=base / "organizados").salvar(cls.config_json)
 
         cls._remendos = [
             mock.patch.object(modulo_config, "CAMINHO_CONFIG", cls.config_json),
