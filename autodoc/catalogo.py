@@ -23,10 +23,10 @@ import logging
 import re
 from bisect import bisect_left
 from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
-from .classificador import ROTULOS, normalizar
+from .classificador import NAO_CLASSIFICADO, ROTULOS, normalizar
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +225,58 @@ class Catalogo:
             achados |= self._indice[palavra]
         return achados
 
+    # ---------------------------------------------------------- consulta
+
+    def _como_dict(self, ficha: Ficha) -> dict:
+        """A ficha no formato que o resto do programa consome.
+
+        `caminho` sai **absoluto**: e guardado relativo para o catalogo ser
+        portatil, mas quem recebe quer abrir o arquivo, nao remontar o caminho.
+        """
+        dados = asdict(ficha)
+        dados["caminho"] = str(self.caminho_de(ficha))
+        return dados
+
+    def listar(self, limite: int = 50, categoria: str | None = None) -> list[dict]:
+        """Os documentos mais recentes, opcionalmente de uma categoria so."""
+        fichas = [
+            f for f in self._fichas.values()
+            if categoria is None or f.categoria == categoria
+        ]
+        fichas.sort(key=_ordem, reverse=True)
+        return [self._como_dict(f) for f in fichas[:limite]]
+
+    def por_id(self, identificador: int) -> Ficha | None:
+        """A ficha de um documento — o que as acoes da tela precisam achar."""
+        return self._fichas.get(identificador)
+
+    def contar_por_categoria(self) -> dict[str, int]:
+        """Quantos documentos ha em cada categoria — alimenta a barra lateral."""
+        contagem: dict[str, int] = {}
+        for ficha in self._fichas.values():
+            contagem[ficha.categoria] = contagem.get(ficha.categoria, 0) + 1
+        return dict(sorted(contagem.items(), key=lambda item: -item[1]))
+
+    def estatisticas(self) -> dict[str, int]:
+        """Os quatro numeros do topo da tela."""
+        hoje = date.today().isoformat()
+        fichas = list(self._fichas.values())
+        return {
+            "arquivados": len(fichas),
+            "hoje": sum(1 for f in fichas if f.processado_em.startswith(hoje)),
+            "ocr": sum(1 for f in fichas if "OCR" in f.origem),
+            "revisar": sum(1 for f in fichas if f.categoria == NAO_CLASSIFICADO),
+        }
+
+
+def _ordem(ficha: Ficha) -> tuple[str, int]:
+    """Como as fichas saem para a tela: a mais recente primeiro.
+
+    Documento sem data vai para o fim, e nao para o comeco, que e onde uma
+    string vazia cairia numa ordenacao decrescente.
+    """
+    return (ficha.data_documento or "0000-00-00", ficha.id)
+
 
 def _texto_indexavel(ficha: Ficha) -> str:
     """Tudo o que deve ser alcancavel pela busca, junto num texto so.
@@ -250,3 +302,4 @@ def _palavras(texto: str) -> set[str]:
     e duas normalizacoes diferentes no mesmo programa acabariam discordando.
     """
     return {p for p in re.split(r"[^0-9a-z]+", normalizar(texto)) if p}
+
