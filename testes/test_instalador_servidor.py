@@ -165,6 +165,42 @@ class TestConcluir(BaseInstalador):
         servidor.iniciar.assert_called_once()
 
 
+class TestConcluirUsaOConfig(BaseInstalador):
+    """`concluir()` relê o config do disco — e tem que respeitar o que está lá.
+
+    Enquanto não respeitava, ele caía nos padrões e criava
+    `~/Documentos/AutoDoc/` na casa de quem estivesse rodando, mesmo num teste.
+    """
+
+    def test_sobe_o_app_nas_pastas_configuradas(self):
+        from autodoc.web import servidor as modulo_servidor
+
+        capturado = {}
+
+        def espiar(config, catalogo, pipeline, porta):
+            capturado["entrada"] = config.pasta_entrada
+            capturado["saida"] = config.pasta_saida
+            return mock.Mock()
+
+        with mock.patch.object(modulo_servidor, "Servidor", espiar):
+            self.instalador.concluir()
+
+        self.assertEqual(capturado["entrada"], self.base / "entrada")
+        self.assertEqual(capturado["saida"], self.base / "organizados")
+
+    def test_nao_cria_pasta_fora_da_configurada(self):
+        from autodoc.web import servidor as modulo_servidor
+
+        padrao = Config().pasta_entrada
+        existia = padrao.exists()
+
+        with mock.patch.object(modulo_servidor, "Servidor", return_value=mock.Mock()):
+            self.instalador.concluir()
+
+        self.assertEqual(padrao.exists(), existia,
+                         f"{padrao} não pode ter sido criada por um teste")
+
+
 class TestRotas(unittest.TestCase):
     """A API do instalador, exercitada por HTTP de verdade."""
 
