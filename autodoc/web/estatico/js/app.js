@@ -5,8 +5,8 @@
    está selecionado. Tudo o mais é consequência disso.
 
    Em demonstração a filtragem acontece aqui, sobre os seis documentos do
-   protótipo. Em modo real quem filtra é o servidor, que tem o índice FTS5 —
-   por isso `carregar()` tem os dois caminhos. */
+   protótipo. Em modo real quem filtra é o servidor, que tem o índice do
+   catálogo — por isso `carregar()` tem os dois caminhos. */
 
 import {
   CATEGORIAS,
@@ -27,8 +27,12 @@ const el = {
   numeros: document.querySelector('[data-numeros]'),
   linhas: document.querySelector('[data-linhas]'),
   vazio: document.querySelector('[data-vazio]'),
+  vazioTexto: document.querySelector('[data-vazio-texto]'),
+  abrirPasta: document.querySelector('[data-abrir-pasta]'),
+  aviso: document.querySelector('[data-aviso]'),
   detalhe: document.querySelector('[data-detalhe]'),
   indice: document.querySelector('[data-indice]'),
+  dados: document.querySelector('[data-dados]'),
   backup: document.querySelector('[data-backup]'),
   detArquivo: document.querySelector('[data-det-arquivo]'),
   detEtiqueta: document.querySelector('[data-det-etiqueta]'),
@@ -51,6 +55,14 @@ const estado = {
 };
 
 let modo = 'demo';
+
+/* ------------------------------------------------------------- aviso */
+
+/** Mostra (ou apaga) a faixa de aviso no topo da lista. */
+function avisar(mensagem) {
+  el.aviso.textContent = mensagem ?? '';
+  el.aviso.hidden = !mensagem;
+}
 
 /* ------------------------------------------------------------ filtro */
 
@@ -191,6 +203,22 @@ function desenharTabela() {
   el.linhas.replaceChildren(...estado.visiveis.map(montarLinha));
   el.vazio.hidden = estado.visiveis.length > 0;
 
+  // Lista vazia tem duas causas bem diferentes, e a tela precisa separá-las:
+  // ou o filtro não achou nada, ou não há documento nenhum ainda — e nesse
+  // segundo caso o que falta é alguém largar um arquivo na pasta.
+  const semNenhum = estado.documentos.length === 0;
+  const filtrando = estado.busca.trim() !== '' || estado.categoria !== 'Todos';
+
+  if (semNenhum && !filtrando) {
+    el.vazioTexto.textContent = modo === 'real'
+      ? `Nenhum documento ainda. Largue um arquivo em ${estado.pasta} e ele aparece aqui sozinho.`
+      : 'Nenhum documento para mostrar.';
+    el.abrirPasta.hidden = modo !== 'real';
+  } else {
+    el.vazioTexto.textContent = 'Nenhum documento corresponde ao filtro.';
+    el.abrirPasta.hidden = true;
+  }
+
   el.resumo.textContent =
     `${estado.visiveis.length} de ${estado.documentos.length} registros` +
     ` · categoria ${estado.categoria}`;
@@ -275,8 +303,13 @@ async function carregar() {
       // O servidor manda só o que passou no filtro; o detalhe precisa achar
       // o documento selecionado nessa mesma lista.
       estado.documentos = dados.todos ?? estado.visiveis;
+      avisar(null);
     } catch {
+      // Falha de verdade: dizer isso, em vez de deixar a tela parecendo vazia.
       estado.visiveis = [];
+      estado.documentos = [];
+      avisar('Não foi possível falar com o AutoDoc. A janela continua tentando;'
+        + ' se persistir, feche e abra o programa de novo.');
     }
   } else {
     estado.visiveis = filtrarLocalmente();
@@ -289,6 +322,14 @@ async function carregar() {
 }
 
 let temporizador;
+el.abrirPasta.addEventListener('click', () => {
+  fetch('api/abrir', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  }).catch(() => avisar('Não foi possível abrir a pasta monitorada.'));
+});
+
 el.busca.addEventListener('input', (evento) => {
   estado.busca = evento.target.value;
   clearTimeout(temporizador);
@@ -307,7 +348,11 @@ function ouvirNovidades() {
     indicador.dataset.ativo = ativo ? 'sim' : 'nao';
   };
 
-  fonte.onopen = () => situacao('watchdog ativo', true);
+  fonte.onopen = () => {
+    situacao('watchdog ativo', true);
+    avisar(null);
+    carregar();
+  };
 
   fonte.onmessage = (evento) => {
     const documento = JSON.parse(evento.data);
@@ -326,12 +371,29 @@ function ouvirNovidades() {
 modo = await detectarModo();
 
 if (modo === 'real') {
+  // Nada de demonstração sobrevive ao modo real. Sem isto a tela abria com os
+  // seis documentos e as estatísticas do protótipo por baixo, e quando a API
+  // falhava o `catch` só esvaziava a tabela — sobrava uma tela com números
+  // inventados e nenhuma linha, sem jeito de saber se era "ainda não há
+  // documento" ou "o servidor quebrou". É a mesma armadilha que já apareceu na
+  // pasta monitorada e no instalador.
+  Object.assign(estado, {
+    documentos: [],
+    visiveis: [],
+    categorias: [],
+    estatisticas: { arquivados: 0, hoje: 0, ocr: 0, revisar: 0 },
+    selecionado: null,
+  });
+
   // A barra lateral passa a descrever esta instalação, e não o protótipo: a
   // pasta que está mesmo sendo vigiada, o índice que a busca está usando e se
   // há backup configurado. Anunciar "sincronizado" sem backup seria mentira.
   const servidor = estadoDoServidor() ?? {};
   if (servidor.pasta) estado.pasta = servidor.pasta;
   if (servidor.busca) el.indice.textContent = servidor.busca;
+  // Não há banco: o que o AutoDoc sabe mora dentro da pasta organizada, e a
+  // lateral mostra qual é ela em vez de um nome de arquivo de banco.
+  if (servidor.pasta_saida) el.dados.textContent = servidor.pasta_saida;
 
   el.backup.textContent = servidor.backup ? 'sincronizado' : 'não configurado';
   el.backup.classList.toggle('lateral__ok', Boolean(servidor.backup));
