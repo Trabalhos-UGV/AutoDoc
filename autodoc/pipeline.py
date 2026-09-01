@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .catalogo import PASTA_REVISAO, Catalogo, Ficha
-from .classificador import NAO_CLASSIFICADO, Classificacao, classificar
+from .classificador import NAO_CLASSIFICADO, ROTULOS, Classificacao, classificar
 from .config import Config
 from .datas import data_de_modificacao, extrair_data_rotulada, extrair_datas
 from .extrator import ExtracaoIndisponivel, extrair_com_origem, hash_arquivo
@@ -148,6 +148,46 @@ class Pipeline:
             documento=documento,
             etapas=etapas,
         )
+
+    def reclassificar(self, ficha: Ficha, categoria: str) -> Ficha:
+        """Move o documento para outra categoria, porque alguem discordou.
+
+        O classificador erra, e um sistema que so deixa concordar com ele nao e
+        util: o que vai para `_Revisar/` precisa ter como sair de la. A
+        confianca vira 1.0 e a regra passa a dizer que foi decisao humana — nao
+        se atribui ao classificador um acerto que nao foi dele.
+        """
+        if categoria not in ROTULOS:
+            raise ValueError(f"categoria desconhecida: {categoria}")
+
+        origem = self.catalogo.caminho_de(ficha)
+        destino_pasta = self._pasta_destino(
+            Classificacao(categoria=categoria, confianca=1.0, regra=""),
+            ficha.data_documento,
+        )
+        destino_pasta.mkdir(parents=True, exist_ok=True)
+        destino = self._nome_livre(destino_pasta / origem.name)
+
+        if origem.exists():
+            shutil.move(str(origem), destino)
+        else:
+            logger.warning("arquivo de %s sumiu antes da correcao", ficha.arquivo)
+
+        ficha.categoria = categoria
+        ficha.caminho = self.catalogo.relativo(destino)
+        ficha.confianca = 1.0
+        ficha.regra = f'categoria definida a mao como "{ROTULOS[categoria]}"'
+        ficha.etapas = list(ficha.etapas) + [{
+            "titulo": "Correção manual",
+            "detalhe": (
+                f"movido para {self._relativo(destino)} por escolha de quem usa — "
+                f"{datetime.now():%d/%m/%Y %H:%M}"
+            ),
+        }]
+
+        self.catalogo.atualizar(ficha)
+        logger.info("%s corrigido a mao para %s", ficha.arquivo, categoria)
+        return ficha
 
     def analisar(self, caminho: Path) -> Ficha | None:
         """Le e classifica um arquivo **sem mover nada**.
