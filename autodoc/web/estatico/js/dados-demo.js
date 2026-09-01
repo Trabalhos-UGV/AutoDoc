@@ -2,7 +2,11 @@
    etapas do prototipo. Servem para os tres front-ends ficarem clicaveis antes
    do backend existir; quando a API responde, sao descartados.
 
-   Gerado por ferramentas/gerar_dados_demo.py a partir do _build.py original. */
+   Gerado por ferramentas/gerar_dados_demo.py a partir do _build.py original.
+
+   As etapas de instalacao foram ajustadas a mao na v0.4.0: o prototipo anunciava
+   "sqlite3 autodoc.db" e um indice FTS5, e nao ha mais banco de dados nenhum.
+   Uma demonstracao que promete o que o programa nao faz e pior do que nenhuma. */
 
 export const ETAPAS = [
   {
@@ -39,11 +43,11 @@ export const ETAPAS = [
     ]
   },
   {
-    "titulo": "Criando banco de dados",
-    "detalhe": "autodoc.db + índice FTS5",
+    "titulo": "Preparando a pasta organizada",
+    "detalhe": "organizados/ pronta, sem banco de dados",
     "logs": [
-      "sqlite3 autodoc.db",
-      "CREATE VIRTUAL TABLE docs USING fts5(...)"
+      "pasta organizada: C:\\Users\\rafael\\AutoDoc\\organizados",
+      "caderno de fichas em .autodoc/catalogo.jsonl"
     ]
   },
   {
@@ -92,7 +96,7 @@ export const DOCUMENTOS = [
       },
       {
         "titulo": "Arquivamento",
-        "detalhe": "copiado para Contas/2026/03/ e indexado no FTS5 (id 1281)"
+        "detalhe": "movido para conta_luz/2026/03/ e indexado na busca"
       }
     ]
   },

@@ -13,6 +13,11 @@ sessao que gerou os frames. Passe o caminho dela como argumento.
 
 Se a pasta original nao existir mais, nao tem problema: o dados-demo.js ja
 esta versionado e so precisa ser regerado se o prototipo mudar.
+
+**Atencao ao regerar.** A etapa "Criando banco de dados" do prototipo foi
+ajustada a mao na v0.4.0, quando o SQLite saiu do projeto: hoje ela se chama
+"Preparando a pasta organizada". Regerar a partir do `_build.py` traz o texto
+antigo de volta, e a demonstracao volta a prometer um banco que nao existe.
 """
 
 from __future__ import annotations
