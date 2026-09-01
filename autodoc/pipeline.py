@@ -88,18 +88,29 @@ class Pipeline:
             }
         ]
 
+        # Ler pode falhar por falta do Tesseract, PDF corrompido, permissao. Em
+        # nenhum desses casos o arquivo pode ficar parado na pasta de entrada:
+        # ali ele seria retentado a cada abertura do programa e ninguem saberia
+        # que ele existe. Vai para a revisao, com o motivo escrito no trajeto.
+        ilegivel: str | None = None
         try:
             texto, origem = extrair_com_origem(caminho)
-        except ExtracaoIndisponivel as erro:
+        except (ExtracaoIndisponivel, OSError) as erro:
             logger.warning("nao foi possivel ler %s: %s", caminho.name, erro)
-            return Resultado(caminho, ignorado=str(erro))
+            texto, origem, ilegivel = "", "não foi possível ler o arquivo", str(erro)
 
         etapas.append({
             "titulo": "Extração de texto",
-            "detalhe": f"{origem} · {len(texto)} caracteres lidos",
+            "detalhe": ilegivel or f"{origem} · {len(texto)} caracteres lidos",
         })
 
         classificacao = classificar(texto)
+        if ilegivel:
+            classificacao = Classificacao(
+                categoria=NAO_CLASSIFICADO,
+                confianca=0.0,
+                regra=f"não foi possível ler o conteúdo — {ilegivel}",
+            )
         etapas.append({
             "titulo": "Classificação",
             "detalhe": (
