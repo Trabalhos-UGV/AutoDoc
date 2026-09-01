@@ -3,9 +3,10 @@
 Fala o contrato que autodoc/web/estatico/js/app.js ja esperava desde que as
 telas foram construidas:
 
-    GET /api/estado                 existir ja significa "modo real"
-    GET /api/documentos?cat=&q=     {linhas, todos, categorias, estatisticas}
-    GET /api/eventos                SSE — um evento por documento novo
+    GET  /api/estado                existir ja significa "modo real"
+    GET  /api/documentos?cat=&q=    {linhas, todos, categorias, estatisticas}
+    GET  /api/eventos               SSE — um evento por documento novo
+    POST /api/abrir                 abre a pasta ou o documento no sistema
 
 Roda so em 127.0.0.1: e um programa de mesa, o catalogo tem o conteudo dos
 documentos da pessoa, e nada disso tem por que estar acessivel na rede.
@@ -20,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import subprocess
 import sys
 import threading
 from datetime import date
@@ -56,6 +58,38 @@ def _formatar_data(iso: str | None) -> str:
         return date.fromisoformat(iso).strftime("%d/%m/%Y")
     except ValueError:
         return iso
+
+
+def abrir_no_sistema(caminho: Path, revelar: bool = False) -> bool:
+    """Entrega o caminho ao gerenciador de arquivos do proprio sistema.
+
+    `revelar` abre a pasta com o arquivo ja selecionado, em vez de abrir o
+    arquivo — e o que se quer quando a pergunta e "onde isso foi parar?".
+
+    Nao usa `webbrowser.open`: um PDF abriria no navegador em vez de no leitor
+    de PDF da pessoa, e uma pasta nem sempre abriria.
+    """
+    if not caminho.exists():
+        return False
+
+    if sys.platform == "darwin":
+        comando = ["open", "-R", str(caminho)] if revelar else ["open", str(caminho)]
+    elif sys.platform.startswith("win"):
+        comando = (
+            ["explorer", f"/select,{caminho}"] if revelar
+            else ["cmd", "/c", "start", "", str(caminho)]
+        )
+    else:
+        # No Linux nao ha "revelar" universal; abrir a pasta e o mais proximo.
+        alvo = caminho.parent if revelar else caminho
+        comando = ["xdg-open", str(alvo)]
+
+    try:
+        subprocess.Popen(comando)
+        return True
+    except OSError:
+        logger.exception("nao foi possivel abrir %s", caminho)
+        return False
 
 
 class ServidorHTTP(ThreadingHTTPServer):
@@ -166,6 +200,21 @@ class Servidor:
             "busca": "índice interno",
             "backup": bool(self.config.pasta_backup),
         }
+
+    def _abrir(self, pedido: dict) -> dict:
+        """Abre a pasta monitorada, ou um documento pelo id."""
+        identificador = pedido.get("id")
+        if identificador is None:
+            aberto = abrir_no_sistema(self.config.pasta_entrada)
+            return {"aberto": aberto, "alvo": str(self.config.pasta_entrada)}
+
+        ficha = self.catalogo.por_id(int(identificador))
+        if ficha is None:
+            return {"aberto": False, "erro": "documento nao encontrado"}
+
+        caminho = self.catalogo.caminho_de(ficha)
+        aberto = abrir_no_sistema(caminho, revelar=bool(pedido.get("revelar")))
+        return {"aberto": aberto, "alvo": str(caminho)}
 
     # ----------------------------------------------------------- eventos
 
@@ -306,5 +355,23 @@ class Rotas(SimpleHTTPRequestHandler):
                     termo=consulta.get("q", [""])[0],
                 )
             )
+
+        self._json({"erro": "rota desconhecida"}, 404)
+
+    def _corpo(self) -> dict:
+        tamanho = int(self.headers.get("Content-Length") or 0)
+        if not tamanho:
+            return {}
+        try:
+            return json.loads(self.rfile.read(tamanho))
+        except json.JSONDecodeError:
+            return {}
+
+    def do_POST(self) -> None:  # noqa: N802 - nome exigido pela biblioteca
+        rota = urlparse(self.path).path
+        corpo = self._corpo()
+
+        if rota == "/api/abrir":
+            return self._json(self.servidor._abrir(corpo))
 
         self._json({"erro": "rota desconhecida"}, 404)

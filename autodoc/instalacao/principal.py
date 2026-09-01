@@ -145,15 +145,6 @@ class RotasInstalador(Rotas):
         # Pula o __init__ de Rotas, que espera um Servidor de aplicativo.
         super(Rotas, self).__init__(*args, directory=str(ESTATICO), **kwargs)
 
-    def _corpo(self) -> dict:
-        tamanho = int(self.headers.get("Content-Length") or 0)
-        if not tamanho:
-            return {}
-        try:
-            return json.loads(self.rfile.read(tamanho))
-        except json.JSONDecodeError:
-            return {}
-
     def do_GET(self) -> None:  # noqa: N802 - nome exigido pela biblioteca
         rota = urlparse(self.path).path
 

@@ -27,6 +27,9 @@ const el = {
   numeros: document.querySelector('[data-numeros]'),
   linhas: document.querySelector('[data-linhas]'),
   vazio: document.querySelector('[data-vazio]'),
+  vazioTexto: document.querySelector('[data-vazio-texto]'),
+  abrirPasta: document.querySelector('[data-abrir-pasta]'),
+  aviso: document.querySelector('[data-aviso]'),
   detalhe: document.querySelector('[data-detalhe]'),
   indice: document.querySelector('[data-indice]'),
   dados: document.querySelector('[data-dados]'),
@@ -52,6 +55,14 @@ const estado = {
 };
 
 let modo = 'demo';
+
+/* ------------------------------------------------------------- aviso */
+
+/** Mostra (ou apaga) a faixa de aviso no topo da lista. */
+function avisar(mensagem) {
+  el.aviso.textContent = mensagem ?? '';
+  el.aviso.hidden = !mensagem;
+}
 
 /* ------------------------------------------------------------ filtro */
 
@@ -192,6 +203,22 @@ function desenharTabela() {
   el.linhas.replaceChildren(...estado.visiveis.map(montarLinha));
   el.vazio.hidden = estado.visiveis.length > 0;
 
+  // Lista vazia tem duas causas bem diferentes, e a tela precisa separá-las:
+  // ou o filtro não achou nada, ou não há documento nenhum ainda — e nesse
+  // segundo caso o que falta é alguém largar um arquivo na pasta.
+  const semNenhum = estado.documentos.length === 0;
+  const filtrando = estado.busca.trim() !== '' || estado.categoria !== 'Todos';
+
+  if (semNenhum && !filtrando) {
+    el.vazioTexto.textContent = modo === 'real'
+      ? `Nenhum documento ainda. Largue um arquivo em ${estado.pasta} e ele aparece aqui sozinho.`
+      : 'Nenhum documento para mostrar.';
+    el.abrirPasta.hidden = modo !== 'real';
+  } else {
+    el.vazioTexto.textContent = 'Nenhum documento corresponde ao filtro.';
+    el.abrirPasta.hidden = true;
+  }
+
   el.resumo.textContent =
     `${estado.visiveis.length} de ${estado.documentos.length} registros` +
     ` · categoria ${estado.categoria}`;
@@ -276,8 +303,13 @@ async function carregar() {
       // O servidor manda só o que passou no filtro; o detalhe precisa achar
       // o documento selecionado nessa mesma lista.
       estado.documentos = dados.todos ?? estado.visiveis;
+      avisar(null);
     } catch {
+      // Falha de verdade: dizer isso, em vez de deixar a tela parecendo vazia.
       estado.visiveis = [];
+      estado.documentos = [];
+      avisar('Não foi possível falar com o AutoDoc. A janela continua tentando;'
+        + ' se persistir, feche e abra o programa de novo.');
     }
   } else {
     estado.visiveis = filtrarLocalmente();
@@ -290,6 +322,14 @@ async function carregar() {
 }
 
 let temporizador;
+el.abrirPasta.addEventListener('click', () => {
+  fetch('api/abrir', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  }).catch(() => avisar('Não foi possível abrir a pasta monitorada.'));
+});
+
 el.busca.addEventListener('input', (evento) => {
   estado.busca = evento.target.value;
   clearTimeout(temporizador);
@@ -308,7 +348,11 @@ function ouvirNovidades() {
     indicador.dataset.ativo = ativo ? 'sim' : 'nao';
   };
 
-  fonte.onopen = () => situacao('watchdog ativo', true);
+  fonte.onopen = () => {
+    situacao('watchdog ativo', true);
+    avisar(null);
+    carregar();
+  };
 
   fonte.onmessage = (evento) => {
     const documento = JSON.parse(evento.data);
