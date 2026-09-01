@@ -19,6 +19,7 @@ documento para todas as telas abertas.
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import queue
@@ -41,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 ESTATICO = Path(__file__).resolve().parent / "estatico"
 PORTA_PADRAO = 8757
+
+# Quantas portas seguintes tentar quando a preferida esta ocupada. Acontece o
+# tempo todo: uma janela ja aberta, ou o instalador que acabou de subir o app.
+TENTATIVAS_DE_PORTA = 20
 TODOS = "Todos"
 
 # Teto do que vai para a tela de uma vez. A tela mostra uma lista, nao um
@@ -266,10 +271,36 @@ class Servidor:
 
     # ------------------------------------------------------------ ciclo
 
+    def _escutar(self) -> ServidorHTTP:
+        """Abre a porta preferida, ou a proxima livre.
+
+        Abrir o AutoDoc com uma janela dele ja aberta derrubava o programa com
+        "Address already in use" — um traceback no terminal para quem so clicou
+        duas vezes no icone. Achar outra porta e o comportamento util: o
+        endereco e detalhe interno, ninguem digita esse numero.
+        """
+        manipulador = partial(Rotas, servidor=self)
+
+        for porta in range(self.porta, self.porta + TENTATIVAS_DE_PORTA):
+            try:
+                http = ServidorHTTP(("127.0.0.1", porta), manipulador)
+            except OSError as erro:
+                if erro.errno != errno.EADDRINUSE:
+                    raise
+                continue
+            if porta != self.porta:
+                logger.info("porta %d ocupada; usando a %d", self.porta, porta)
+            self.porta = porta
+            return http
+
+        raise OSError(
+            f"nenhuma porta livre entre {self.porta} e "
+            f"{self.porta + TENTATIVAS_DE_PORTA - 1}"
+        )
+
     def iniciar(self) -> str:
         """Sobe o HTTP e o observador. Devolve a URL para abrir."""
-        manipulador = partial(Rotas, servidor=self)
-        self._http = ServidorHTTP(("127.0.0.1", self.porta), manipulador)
+        self._http = self._escutar()
         threading.Thread(target=self._http.serve_forever, daemon=True).start()
 
         # A pasta organizada e a verdade: antes de mostrar qualquer coisa, o
