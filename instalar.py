@@ -20,11 +20,36 @@ RAIZ = Path(__file__).resolve().parent
 VENV = RAIZ / "venv"
 PYTHON_MINIMO = (3, 10)
 
+ESSENCIAIS = RAIZ / "requirements-essenciais.txt"
+COMPLETO = RAIZ / "requirements.txt"
+
 
 def python_do_venv() -> Path:
     if sys.platform.startswith("win"):
         return VENV / "Scripts" / "python.exe"
     return VENV / "bin" / "python"
+
+
+def opcoes_do_venv() -> list[str]:
+    """Opcoes extras na criacao do ambiente virtual.
+
+    **No Linux o venv precisa enxergar os pacotes do sistema.** O motor da
+    janela nativa la e o WebKitGTK, alcancado pelo `gi` (PyGObject), e os dois
+    vem do gerenciador da distribuicao — `pacman -S python-gobject`,
+    `apt install python3-gi`. Um venv comum e isolado e nao ve nada disso, entao
+    o pywebview instalado por dentro dele nunca acha motor e a janela nao abre,
+    por mais que os pacotes certos estejam no sistema.
+
+    Quem tenta resolver isso pelo pip cai em `pywebview[gtk]`, que compila o
+    PyGObject do zero e falha sem gobject-introspection, cairo e pkgconf. Era
+    esse o beco.
+
+    O que o venv instala continua vindo antes do que o sistema tem: o
+    `site-packages` do proprio ambiente vem primeiro no caminho de busca.
+    """
+    if sys.platform.startswith("linux"):
+        return ["--system-site-packages"]
+    return []
 
 
 def preparar_ambiente() -> Path:
@@ -38,21 +63,47 @@ def preparar_ambiente() -> Path:
 
     if not python.exists():
         print("Criando o ambiente virtual...")
-        subprocess.run([sys.executable, "-m", "venv", str(VENV)], check=True)
+        subprocess.run(
+            [sys.executable, "-m", "venv", *opcoes_do_venv(), str(VENV)], check=True
+        )
         python = python_do_venv()
 
-    pronto = subprocess.run(
-        [str(python), "-c", "import webview, watchdog"], capture_output=True
-    )
-    if pronto.returncode != 0:
+    def tem(modulos: str) -> bool:
+        return subprocess.run(
+            [str(python), "-c", f"import {modulos}"], capture_output=True
+        ).returncode == 0
+
+    # Primeiro o que o AutoDoc nao dispensa. Falhar aqui e falhar de verdade.
+    if not tem("watchdog, pypdf"):
         print("Instalando as dependências (pode levar um minuto)...")
         subprocess.run(
-            [str(python), "-m", "pip", "install", "-q", "-r",
-             str(RAIZ / "requirements.txt")],
+            [str(python), "-m", "pip", "install", "-q", "-r", str(ESSENCIAIS)],
             check=True,
         )
 
+    # Depois o resto, no melhor esforco. A janela nativa e o OCR sao recursos,
+    # nao requisitos: uma dessas falhando nao pode impedir alguem de instalar o
+    # programa — foi o que aconteceu no Linux, onde a instalacao inteira
+    # abortava por causa da parte grafica.
+    if not tem("webview") or not tem("pytesseract"):
+        print("Instalando os recursos opcionais...")
+        resultado = subprocess.run(
+            [str(python), "-m", "pip", "install", "-q", "-r", str(COMPLETO)],
+            capture_output=True, text=True,
+        )
+        if resultado.returncode != 0:
+            print("  Nem tudo pôde ser instalado — o AutoDoc funciona assim mesmo.")
+            print(f"  {_ultima_linha(resultado.stderr or resultado.stdout)}")
+            if not tem("webview"):
+                print("  A janela nativa não estará disponível; as telas abrem no navegador.")
+
     return python
+
+
+def _ultima_linha(saida: str) -> str:
+    """A ultima linha util do pip — a que diz o que aconteceu de fato."""
+    linhas = [l.strip() for l in (saida or "").splitlines() if l.strip()]
+    return linhas[-1][:160] if linhas else "sem detalhes"
 
 
 def main() -> int:

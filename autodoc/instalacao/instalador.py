@@ -31,6 +31,25 @@ RAIZ = Path(__file__).resolve().parent.parent.parent
 VENV = RAIZ / "venv"
 PYTHON_MINIMO = (3, 10)
 
+ESSENCIAIS = RAIZ / "requirements-essenciais.txt"
+COMPLETO = RAIZ / "requirements.txt"
+
+
+def opcoes_do_venv() -> list[str]:
+    """Opcoes extras na criacao do ambiente virtual.
+
+    No Linux o venv precisa enxergar os pacotes do sistema: o motor da janela
+    nativa la e o WebKitGTK, alcancado pelo `gi` (PyGObject), e os dois vem do
+    gerenciador da distribuicao. Um venv isolado nao ve nada disso.
+
+    Repetido de proposito em `instalar.py`, que roda com o Python do sistema
+    antes de o pacote existir e por isso nao pode importar daqui. Um teste
+    compara os dois para eles nao se separarem.
+    """
+    if sys.platform.startswith("linux"):
+        return ["--system-site-packages"]
+    return []
+
 
 @dataclass
 class Etapa:
@@ -70,18 +89,37 @@ def criar_ambiente_virtual(estado: dict) -> Iterator[str]:
         estado["detalhe"] = f"{VENV.name}/ já estava criado"
         return
 
-    yield "python -m venv venv"
-    subprocess.run([sys.executable, "-m", "venv", str(VENV)], check=True)
+    opcoes = opcoes_do_venv()
+    yield "python -m venv " + " ".join(opcoes + ["venv"])
+    subprocess.run([sys.executable, "-m", "venv", *opcoes, str(VENV)], check=True)
+    if opcoes:
+        yield "com acesso aos pacotes do sistema, para achar o motor gráfico"
     yield "ambiente virtual criado"
     estado["detalhe"] = f"{VENV.name}/ criado no diretório do projeto"
 
 
-def instalar_dependencias(estado: dict) -> Iterator[str]:
-    python = _python_do_venv()
-    yield "pip install -r requirements.txt"
+def _resumir_pip(saida: str) -> str:
+    """A saida do pip e comprida e cheia de caminho absoluto; cortada no meio
+    fica pior do que resumida."""
+    novos = [l for l in saida.splitlines() if l.startswith("Successfully installed")]
+    if novos:
+        return novos[-1][:100]
+    return f"{saida.count('Requirement already satisfied')} dependências já estavam instaladas"
 
+
+def instalar_dependencias(estado: dict) -> Iterator[str]:
+    """Instala em dois niveis: o que e obrigatorio e o que e recurso.
+
+    A janela nativa e o OCR sao recursos. Tratar a falha deles como falha da
+    instalacao inteira e o que deixava o AutoDoc impossivel de instalar no
+    Linux, onde a parte grafica depende de pacotes do sistema que nem sempre
+    estao la — e onde tentar resolver pelo pip cai na compilacao do PyGObject.
+    """
+    python = _python_do_venv()
+
+    yield "pip install -r requirements-essenciais.txt"
     processo = subprocess.run(
-        [str(python), "-m", "pip", "install", "-r", str(RAIZ / "requirements.txt")],
+        [str(python), "-m", "pip", "install", "-r", str(ESSENCIAIS)],
         capture_output=True, text=True,
     )
     if processo.returncode != 0:
@@ -89,23 +127,28 @@ def instalar_dependencias(estado: dict) -> Iterator[str]:
             "falha ao instalar as dependências:\n"
             + (processo.stderr or processo.stdout)[-400:]
         )
+    yield _resumir_pip(processo.stdout)
 
-    # Resumir em vez de repetir a saida do pip: ela e comprida, cheia de
-    # caminho absoluto, e cortada no meio fica pior do que nao mostrar nada.
-    saida = processo.stdout
-    novos = [l for l in saida.splitlines() if l.startswith("Successfully installed")]
-    if novos:
-        yield novos[-1][:100]
+    yield "pip install -r requirements.txt"
+    opcionais = subprocess.run(
+        [str(python), "-m", "pip", "install", "-r", str(COMPLETO)],
+        capture_output=True, text=True,
+    )
+    if opcionais.returncode == 0:
+        yield _resumir_pip(opcionais.stdout)
+        estado["detalhe"] = "watchdog, pypdf, pywebview, pytesseract"
     else:
-        ja_tinha = saida.count("Requirement already satisfied")
-        yield f"{ja_tinha} dependências já estavam instaladas"
+        ultima = [l.strip() for l in (opcionais.stderr or opcionais.stdout).splitlines()
+                  if l.strip()]
+        yield f"recursos opcionais não instalados: {ultima[-1][:120] if ultima else '?'}"
+        yield "o AutoDoc funciona assim mesmo; as telas abrem no navegador"
+        estado["detalhe"] = "watchdog e pypdf — parte gráfica indisponível"
 
     instalados = subprocess.run(
         [str(python), "-m", "pip", "list", "--format=freeze"],
         capture_output=True, text=True,
     ).stdout.splitlines()
     yield f"{len(instalados)} pacotes disponíveis no ambiente"
-    estado["detalhe"] = "watchdog, pypdf, pywebview, pytesseract"
 
 
 def configurar_ocr(estado: dict) -> Iterator[str]:

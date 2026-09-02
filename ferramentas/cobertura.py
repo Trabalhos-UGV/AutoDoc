@@ -101,7 +101,8 @@ def faixas(numeros: list[int]) -> str:
 
 
 def modulos(filtro: str | None) -> list[Path]:
-    todos = sorted(list((RAIZ / "autodoc").rglob("*.py")) + [RAIZ / "main.py"])
+    todos = sorted(list((RAIZ / "autodoc").rglob("*.py"))
+                   + [RAIZ / "main.py", RAIZ / "instalar.py"])
     todos = [c for c in todos if "__pycache__" not in str(c)]
     if not filtro:
         return todos

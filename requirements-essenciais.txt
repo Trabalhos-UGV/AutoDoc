@@ -1,0 +1,7 @@
+# O minimo para o AutoDoc organizar documentos. Sem estes ele nao funciona.
+
+# Monitoramento da pasta de entrada.
+watchdog>=4.0.0
+
+# Leitura de PDF com camada de texto.
+pypdf>=4.0.0

@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 from autodoc import config as modulo_config
+from autodoc.config import Config
 from autodoc.instalacao import atalho, instalador as modulo_instalador
 from autodoc.instalacao.principal import Instalador, RotasInstalador
 from autodoc.web.servidor import ServidorHTTP
@@ -31,6 +32,13 @@ class BaseInstalador(unittest.TestCase):
         self.addCleanup(self._temporaria.cleanup)
 
         self.config_json = self.base / "config.json"
+        # O config precisa **existir** apontando para a pasta temporária. Sem
+        # isto, todo `Config.carregar()` cai nos padrões — que são as pastas de
+        # documentos de quem está rodando os testes — e `concluir()`, que relê o
+        # config do disco, criava pastas de verdade na casa da pessoa.
+        Config(pasta_entrada=self.base / "entrada",
+               pasta_saida=self.base / "organizados").salvar(self.config_json)
+
         self.enterContext(mock.patch.object(
             modulo_config, "CAMINHO_CONFIG", self.config_json))
         self.enterContext(mock.patch.object(
@@ -110,9 +118,29 @@ class TestInstalar(BaseInstalador):
 
 
 class TestEscolherPasta(BaseInstalador):
-    def test_sem_janela_devolve_nada_sem_levantar(self):
-        """O instalador pode estar servindo no navegador, sem janela nativa."""
-        self.assertIsNone(self.instalador.escolher_pasta())
+    def test_sem_janela_avisa_que_nao_ha_seletor(self):
+        """Linux sem WebKitGTK, com a tela no navegador: não há o que abrir.
+
+        Devolver só `None` fazia o botão da tela não fazer nada — dava para
+        instalar, mas não para escolher onde.
+        """
+        resposta = self.instalador.escolher_pasta()
+
+        self.assertFalse(resposta["seletor"])
+        self.assertEqual(resposta["caminho"], str(self.instalador.pasta_entrada))
+
+    def test_caminho_digitado_e_aceito_e_gravado(self):
+        escolhida = self.base / "Documentos" / "Contas"
+        resposta = self.instalador.escolher_pasta(str(escolhida))
+
+        self.assertEqual(resposta["caminho"], str(escolhida))
+        self.assertTrue(resposta["seletor"])
+        gravado = json.loads(self.config_json.read_text(encoding="utf-8"))
+        self.assertEqual(gravado["pasta_entrada"], str(escolhida))
+
+    def test_caminho_digitado_com_til_e_expandido(self):
+        resposta = self.instalador.escolher_pasta("~/Documentos/Contas")
+        self.assertFalse(resposta["caminho"].startswith("~"))
 
     def test_seletor_que_falha_e_registrado(self):
         janela = mock.Mock()
@@ -120,7 +148,9 @@ class TestEscolherPasta(BaseInstalador):
 
         with mock.patch("autodoc.instalacao.principal._janela", janela), \
              self.assertLogs("autodoc.instalacao.principal", "ERROR"):
-            self.assertIsNone(self.instalador.escolher_pasta())
+            resposta = self.instalador.escolher_pasta()
+
+        self.assertFalse(resposta["seletor"], "a tela precisa cair para o teclado")
 
     def test_cancelar_o_seletor_mantem_a_pasta(self):
         janela = mock.Mock()
@@ -128,8 +158,10 @@ class TestEscolherPasta(BaseInstalador):
         anterior = self.instalador.pasta_entrada
 
         with mock.patch("autodoc.instalacao.principal._janela", janela):
-            self.assertIsNone(self.instalador.escolher_pasta())
+            resposta = self.instalador.escolher_pasta()
+
         self.assertEqual(self.instalador.pasta_entrada, anterior)
+        self.assertTrue(resposta["seletor"])
 
     def test_escolher_grava_no_disco(self):
         """O defeito de origem: a escolha tinha que sair da memória."""
@@ -138,9 +170,9 @@ class TestEscolherPasta(BaseInstalador):
         janela.create_file_dialog.return_value = [str(escolhida)]
 
         with mock.patch("autodoc.instalacao.principal._janela", janela):
-            devolvido = self.instalador.escolher_pasta()
+            resposta = self.instalador.escolher_pasta()
 
-        self.assertEqual(devolvido, str(escolhida))
+        self.assertEqual(resposta["caminho"], str(escolhida))
         gravado = json.loads(self.config_json.read_text(encoding="utf-8"))
         self.assertEqual(gravado["pasta_entrada"], str(escolhida))
 
@@ -157,6 +189,42 @@ class TestConcluir(BaseInstalador):
         servidor.iniciar.assert_called_once()
 
 
+class TestConcluirUsaOConfig(BaseInstalador):
+    """`concluir()` relê o config do disco — e tem que respeitar o que está lá.
+
+    Enquanto não respeitava, ele caía nos padrões e criava
+    `~/Documentos/AutoDoc/` na casa de quem estivesse rodando, mesmo num teste.
+    """
+
+    def test_sobe_o_app_nas_pastas_configuradas(self):
+        from autodoc.web import servidor as modulo_servidor
+
+        capturado = {}
+
+        def espiar(config, catalogo, pipeline, porta):
+            capturado["entrada"] = config.pasta_entrada
+            capturado["saida"] = config.pasta_saida
+            return mock.Mock()
+
+        with mock.patch.object(modulo_servidor, "Servidor", espiar):
+            self.instalador.concluir()
+
+        self.assertEqual(capturado["entrada"], self.base / "entrada")
+        self.assertEqual(capturado["saida"], self.base / "organizados")
+
+    def test_nao_cria_pasta_fora_da_configurada(self):
+        from autodoc.web import servidor as modulo_servidor
+
+        padrao = Config().pasta_entrada
+        existia = padrao.exists()
+
+        with mock.patch.object(modulo_servidor, "Servidor", return_value=mock.Mock()):
+            self.instalador.concluir()
+
+        self.assertEqual(padrao.exists(), existia,
+                         f"{padrao} não pode ter sido criada por um teste")
+
+
 class TestRotas(unittest.TestCase):
     """A API do instalador, exercitada por HTTP de verdade."""
 
@@ -165,6 +233,8 @@ class TestRotas(unittest.TestCase):
         cls._temporaria = tempfile.TemporaryDirectory()
         base = Path(cls._temporaria.name)
         cls.config_json = base / "config.json"
+        Config(pasta_entrada=base / "entrada",
+               pasta_saida=base / "organizados").salvar(cls.config_json)
 
         cls._remendos = [
             mock.patch.object(modulo_config, "CAMINHO_CONFIG", cls.config_json),
@@ -220,12 +290,22 @@ class TestRotas(unittest.TestCase):
         self.assertTrue(resposta["iniciado"])
         comecou.assert_called_once_with("/uma/pasta")
 
-    def test_escolher_pasta_devolve_as_duas(self):
-        with mock.patch.object(self.instalador, "escolher_pasta", return_value="/x"):
-            resposta = self.post("/api/escolher-pasta")
+    def test_escolher_pasta_devolve_as_duas_e_o_seletor(self):
+        resposta = self.post("/api/escolher-pasta")
 
-        self.assertEqual(resposta["caminho"], "/x")
+        self.assertIn("caminho", resposta)
         self.assertIn("pasta_saida", resposta)
+        self.assertIn("seletor", resposta)
+
+    def test_escolher_pasta_aceita_o_caminho_digitado(self):
+        """É por aqui que a tela no navegador escolhe a pasta."""
+        with mock.patch.object(self.instalador, "escolher_pasta") as escolheu:
+            escolheu.return_value = {"caminho": "/digitado", "pasta_saida": "/d",
+                                     "seletor": True}
+            resposta = self.post("/api/escolher-pasta", {"caminho": "/digitado"})
+
+        escolheu.assert_called_once_with("/digitado")
+        self.assertEqual(resposta["caminho"], "/digitado")
 
     def test_concluir_devolve_o_endereco_do_app(self):
         with mock.patch.object(self.instalador, "concluir",

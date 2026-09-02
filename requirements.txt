@@ -1,14 +1,20 @@
-# Monitoramento da pasta de entrada.
-watchdog>=4.0.0
+-r requirements-essenciais.txt
 
-# Leitura de PDF com camada de texto.
-pypdf>=4.0.0
+# Daqui para baixo e tudo opcional: a falta de qualquer um destes tira um
+# recurso, e nao o programa. O instalador trata este arquivo como "o melhor que
+# der" justamente por isso — no Linux e comum a janela nativa nao instalar, e
+# isso nao pode impedir ninguem de usar o AutoDoc.
 
 # Janela nativa do app — usa o motor do proprio sistema (WebKit no macOS,
-# WebView2 no Windows, GTK no Linux), sem baixar navegador junto.
+# WebView2 no Windows, WebKitGTK no Linux), sem baixar navegador junto.
+#
+# No Linux o pacote do pip nao traz motor nenhum: ele usa o `gi` (PyGObject) e
+# o WebKitGTK do sistema, instalados pelo gerenciador da distribuicao. Por isso
+# o venv e criado com --system-site-packages la, e por isso NAO se instala o
+# extra `pywebview[gtk]`, que tentaria compilar o PyGObject do zero.
 pywebview>=5.0
 
-# OCR de imagens e PDFs digitalizados. Opcional: sem o Tesseract instalado no
-# sistema, o AutoDoc roda igual e so deixa de ler imagens.
+# OCR de imagens e PDFs digitalizados. Sem o Tesseract instalado no sistema, o
+# AutoDoc roda igual e so deixa de ler imagens.
 pytesseract>=0.3.10
 Pillow>=10.0.0

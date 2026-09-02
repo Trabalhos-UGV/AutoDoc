@@ -103,10 +103,21 @@ class Instalador:
         config.salvar()
         self.pasta_saida = config.pasta_saida
 
-    def escolher_pasta(self) -> str | None:
-        """Abre o seletor de pastas do proprio sistema e guarda a escolha."""
+    def escolher_pasta(self, digitada: str | None = None) -> dict:
+        """Escolhe a pasta a vigiar, pelo seletor do sistema ou pelo teclado.
+
+        Quando nao ha janela nativa — Linux sem WebKitGTK, com a tela aberta no
+        navegador — nao existe seletor para abrir. Antes isso devolvia `None` e
+        o botao da tela simplesmente nao fazia nada: dava para instalar, mas nao
+        dava para escolher onde. Agora a tela sabe pedir o caminho digitado.
+        """
+        if digitada:
+            self._apontar(Path(digitada).expanduser())
+            return self._resposta_da_pasta()
+
         if _janela is None:
-            return None
+            return self._resposta_da_pasta(seletor=False)
+
         try:
             import webview
             escolha = _janela.create_file_dialog(
@@ -114,12 +125,24 @@ class Instalador:
             )
         except Exception:
             logger.exception("nao foi possivel abrir o seletor de pastas")
-            return None
+            return self._resposta_da_pasta(seletor=False)
 
         if not escolha:
-            return None
+            return self._resposta_da_pasta()   # cancelou; a pasta atual vale
         self._apontar(Path(escolha[0]))
-        return str(self.pasta_entrada)
+        return self._resposta_da_pasta()
+
+    def _resposta_da_pasta(self, seletor: bool = True) -> dict:
+        """O que a tela precisa saber depois de mexer na pasta.
+
+        `seletor` diz se o seletor nativo esta disponivel; com ele em falso a
+        tela pede o caminho digitado em vez de abrir uma janela que nao existe.
+        """
+        return {
+            "caminho": str(self.pasta_entrada),
+            "pasta_saida": str(self.pasta_saida),
+            "seletor": seletor,
+        }
 
     def concluir(self) -> str:
         """Sobe o aplicativo e devolve o endereco para a janela seguir."""
@@ -179,10 +202,7 @@ class RotasInstalador(Rotas):
         if rota == "/api/escolher-pasta":
             # A saida acompanha a entrada, entao a tela precisa das duas para
             # dizer onde os documentos vao ficar.
-            return self._json({
-                "caminho": self.instalador.escolher_pasta(),
-                "pasta_saida": str(self.instalador.pasta_saida),
-            })
+            return self._json(self.instalador.escolher_pasta(corpo.get("caminho")))
 
         if rota == "/api/concluir":
             return self._json({"url": self.instalador.concluir()})
@@ -224,21 +244,24 @@ def main() -> int:
     url = f"http://127.0.0.1:{PORTA}/"
     print(f"Instalador do AutoDoc {__version__} — {url}")
 
-    global _janela
-    try:
-        import webview
+    def guardar(criada) -> None:
+        global _janela
+        _janela = criada
 
-        _janela = webview.create_window(
-            f"Instalador do AutoDoc — {__version__}",
+    try:
+        # Uma funcao so para os dois caminhos. Antes daqui havia uma copia que
+        # tratava apenas `ImportError`, e no Linux sem GTK o pywebview levanta
+        # `WebViewException` — que escapava e derrubava o instalador inteiro
+        # com um traceback, em vez de abrir a mesma tela no navegador.
+        janela.abrir(
             url,
-            width=980,
-            height=760,
-            min_size=(820, 640),
-            background_color="#16140f",
+            titulo=f"Instalador do AutoDoc — {__version__}",
+            largura=980,
+            altura=760,
+            minimo=(820, 640),
+            fundo="#16140f",
+            ao_criar=guardar,
         )
-        webview.start()
-    except ImportError:
-        janela.abrir(url, titulo="Instalador do AutoDoc")
     finally:
         servidor.shutdown()
         servidor.server_close()
