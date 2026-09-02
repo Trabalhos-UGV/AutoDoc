@@ -52,6 +52,46 @@ def opcoes_do_venv() -> list[str]:
     return []
 
 
+CHAVE_SISTEMA = "include-system-site-packages"
+
+
+def abrir_venv_ao_sistema(venv: Path = VENV) -> bool:
+    """Faz um ambiente virtual ja existente enxergar os pacotes do sistema.
+
+    Um venv criado antes desta correcao esta isolado, e no Linux isso e o que
+    impede o pywebview de achar o `gi` que o gerenciador da distribuicao
+    instalou. Sem isto, quem instalasse o `python-gobject` continuaria sem
+    janela e sem entender por que — o conserto pedia apagar o venv e comecar
+    de novo, que e um passo facil de esquecer e chato de descobrir.
+
+    O `pyvenv.cfg` e lido pelo interpretador a cada partida, entao virar a
+    chave ali equivale a ter criado o ambiente com `--system-site-packages`.
+    Nada e reinstalado. O que o venv tem continua vindo antes do sistema.
+
+    Devolve True quando mudou alguma coisa.
+    """
+    configuracao = venv / "pyvenv.cfg"
+    if not configuracao.exists():
+        return False
+
+    linhas = configuracao.read_text(encoding="utf-8").splitlines()
+    mudou = False
+    for indice, linha in enumerate(linhas):
+        chave, separador, valor = linha.partition("=")
+        if separador and chave.strip() == CHAVE_SISTEMA:
+            if valor.strip().lower() != "true":
+                linhas[indice] = f"{CHAVE_SISTEMA} = true"
+                mudou = True
+            break
+    else:
+        linhas.append(f"{CHAVE_SISTEMA} = true")
+        mudou = True
+
+    if mudou:
+        configuracao.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    return mudou
+
+
 def preparar_ambiente() -> Path:
     """Garante um venv com as dependencias, e devolve o Python dele.
 
@@ -67,6 +107,10 @@ def preparar_ambiente() -> Path:
             [sys.executable, "-m", "venv", *opcoes_do_venv(), str(VENV)], check=True
         )
         python = python_do_venv()
+    elif sys.platform.startswith("linux") and abrir_venv_ao_sistema():
+        # Ambiente criado por uma versao anterior, quando o venv nascia
+        # isolado. Sem isto o pywebview nunca acharia o motor do sistema.
+        print("Ambiente virtual ajustado para enxergar os pacotes do sistema.")
 
     def tem(modulos: str) -> bool:
         return subprocess.run(
