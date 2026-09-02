@@ -56,9 +56,10 @@ Duas coisas que custaram tempo e ficam registradas para o próximo:
   desenvolvimento. O caminho certo é o pacote da distribuição.
 - **O ambiente virtual precisa enxergar o sistema.** Um `venv` comum é isolado e
   não vê o `gi` que o `pacman` instalou, então o pywebview não acha motor mesmo
-  com tudo certo no sistema. Por isso o AutoDoc cria o venv com
-  `--system-site-packages` no Linux — automaticamente, você não precisa fazer
-  nada.
+  com tudo certo no sistema. O AutoDoc cria o venv com `--system-site-packages`
+  no Linux, e **conserta sozinho um venv antigo** que tenha nascido isolado —
+  virando a chave `include-system-site-packages` no `pyvenv.cfg`, sem
+  reinstalar nada. Você não precisa apagar a pasta `venv/`.
 
 **Nada disso é obrigatório.** Sem o motor gráfico o AutoDoc instala e funciona
 igual; as telas abrem no navegador padrão em vez de em janela própria, e o
