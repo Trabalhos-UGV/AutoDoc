@@ -55,7 +55,7 @@ def opcoes_do_venv() -> list[str]:
 CHAVE_SISTEMA = "include-system-site-packages"
 
 
-def abrir_venv_ao_sistema(venv: Path = VENV) -> bool:
+def abrir_venv_ao_sistema(venv: Path | None = None) -> bool:
     """Faz um ambiente virtual ja existente enxergar os pacotes do sistema.
 
     Um venv criado antes desta correcao esta isolado, e no Linux isso e o que
@@ -70,7 +70,9 @@ def abrir_venv_ao_sistema(venv: Path = VENV) -> bool:
 
     Devolve True quando mudou alguma coisa.
     """
-    configuracao = venv / "pyvenv.cfg"
+    # Resolvido aqui, e nao no valor padrao do parametro: um padrao e avaliado
+    # na definicao da funcao e ficaria preso ao VENV daquele instante.
+    configuracao = (venv or VENV) / "pyvenv.cfg"
     if not configuracao.exists():
         return False
 

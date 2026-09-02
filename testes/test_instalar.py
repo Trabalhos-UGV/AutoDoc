@@ -100,6 +100,15 @@ class TestAbrirVenvAoSistema(unittest.TestCase):
     def test_sem_pyvenv_cfg_nao_faz_nada(self):
         self.assertFalse(instalar.abrir_venv_ao_sistema(self.venv / "inexistente"))
 
+    def test_sem_argumento_usa_o_venv_do_projeto_daquele_momento(self):
+        """Um padrão no parâmetro ficaria preso ao VENV da hora do import."""
+        self.configuracao.write_text(
+            "include-system-site-packages = false\n", encoding="utf-8")
+
+        with mock.patch.object(instalar, "VENV", self.venv):
+            self.assertTrue(instalar.abrir_venv_ao_sistema())
+        self.assertEqual(self.chave(), "true")
+
 
 class TestPythonDoVenv(unittest.TestCase):
     def test_caminho_por_sistema(self):
