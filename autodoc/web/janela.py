@@ -65,11 +65,20 @@ def abrir(
     largura: int = LARGURA_PADRAO,
     altura: int = ALTURA_PADRAO,
     redimensionavel: bool = True,
+    minimo: tuple[int, int] = TAMANHO_MINIMO,
+    fundo: str = "#110f0b",
+    ao_criar=None,
 ) -> str:
     """Abre a janela e bloqueia ate ela ser fechada.
 
     Devolve 'nativa' ou 'navegador', conforme o que deu para fazer. Precisa ser
     chamada da thread principal.
+
+    `ao_criar` recebe a janela recem-criada. E por onde o instalador guarda a
+    referencia de que precisa para abrir o seletor de pastas do sistema — sem
+    isso ele teria que repetir aqui toda a logica de queda para o navegador, e
+    foi exatamente essa copia que deixou o instalador quebrando no Linux
+    enquanto o aplicativo caia no navegador direitinho.
     """
     try:
         import webview
@@ -77,15 +86,17 @@ def abrir(
         return _cair_no_navegador(url, "pywebview nao instalado")
 
     try:
-        webview.create_window(
+        janela = webview.create_window(
             titulo,
             url,
             width=largura,
             height=altura,
-            min_size=TAMANHO_MINIMO,
+            min_size=minimo,
             resizable=redimensionavel,
-            background_color="#110f0b",  # evita o flash branco antes de pintar
+            background_color=fundo,  # evita o flash branco antes de pintar
         )
+        if ao_criar is not None:
+            ao_criar(janela)
         webview.start()
     except Exception as erro:  # o motor nativo pode faltar no Linux
         return _cair_no_navegador(url, f"{type(erro).__name__}: {erro}")

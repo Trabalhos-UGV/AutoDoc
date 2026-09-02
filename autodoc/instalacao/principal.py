@@ -224,21 +224,24 @@ def main() -> int:
     url = f"http://127.0.0.1:{PORTA}/"
     print(f"Instalador do AutoDoc {__version__} — {url}")
 
-    global _janela
-    try:
-        import webview
+    def guardar(criada) -> None:
+        global _janela
+        _janela = criada
 
-        _janela = webview.create_window(
-            f"Instalador do AutoDoc — {__version__}",
+    try:
+        # Uma funcao so para os dois caminhos. Antes daqui havia uma copia que
+        # tratava apenas `ImportError`, e no Linux sem GTK o pywebview levanta
+        # `WebViewException` — que escapava e derrubava o instalador inteiro
+        # com um traceback, em vez de abrir a mesma tela no navegador.
+        janela.abrir(
             url,
-            width=980,
-            height=760,
-            min_size=(820, 640),
-            background_color="#16140f",
+            titulo=f"Instalador do AutoDoc — {__version__}",
+            largura=980,
+            altura=760,
+            minimo=(820, 640),
+            fundo="#16140f",
+            ao_criar=guardar,
         )
-        webview.start()
-    except ImportError:
-        janela.abrir(url, titulo="Instalador do AutoDoc")
     finally:
         servidor.shutdown()
         servidor.server_close()
