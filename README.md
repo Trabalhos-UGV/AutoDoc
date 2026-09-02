@@ -27,11 +27,42 @@ O AutoDoc resolve o problema da organização manual de documentos (contas, nota
 
 ### Pré-requisitos
 
-- Python 3.10 ou superior
+- Python 3.10 ou superior. Cuidado: em muitos sistemas o `python3` do sistema
+  ainda é 3.9 — o instalador confere e avisa antes de fazer qualquer coisa.
 - Tesseract OCR — **opcional**, necessário apenas para ler imagens e digitalizações. Sem ele o AutoDoc instala e funciona normalmente, apenas sem OCR:
   - **Windows:** baixar o instalador em https://github.com/UB-Mannheim/tesseract/wiki
   - **macOS:** `brew install tesseract`
   - **Linux (Debian/Ubuntu):** `sudo apt install tesseract-ocr`
+  - **Linux (Arch):** `sudo pacman -S tesseract tesseract-data-por`
+
+#### Linux: a janela nativa
+
+No macOS e no Windows a janela do AutoDoc vem pronta com o `pip install`. **No
+Linux não**: lá o motor é o WebKitGTK do próprio sistema, alcançado pelo `gi`
+(PyGObject), e os dois vêm do gerenciador da distribuição.
+
+| Distribuição | Comando |
+| --- | --- |
+| Arch, Manjaro | `sudo pacman -S python-gobject webkit2gtk-4.1` |
+| Debian, Ubuntu, Mint | `sudo apt install python3-gi gir1.2-webkit2-4.1` |
+| Fedora, RHEL | `sudo dnf install python3-gobject webkit2gtk4.1` |
+| openSUSE | `sudo zypper install python3-gobject typelib-1_0-WebKit2-4_1` |
+
+Duas coisas que custaram tempo e ficam registradas para o próximo:
+
+- **Não instale `pywebview[gtk]` pelo pip.** Ele tenta compilar o PyGObject do
+  zero e falha com `Dependency 'girepository-2.0' not found` ou
+  `Failed building wheel for pygobject` se faltarem os headers de
+  desenvolvimento. O caminho certo é o pacote da distribuição.
+- **O ambiente virtual precisa enxergar o sistema.** Um `venv` comum é isolado e
+  não vê o `gi` que o `pacman` instalou, então o pywebview não acha motor mesmo
+  com tudo certo no sistema. Por isso o AutoDoc cria o venv com
+  `--system-site-packages` no Linux — automaticamente, você não precisa fazer
+  nada.
+
+**Nada disso é obrigatório.** Sem o motor gráfico o AutoDoc instala e funciona
+igual; as telas abrem no navegador padrão em vez de em janela própria, e o
+programa diz isso com todas as letras, junto com o comando da sua distribuição.
 
 ### Instalação
 
@@ -60,11 +91,19 @@ A partir daí o AutoDoc abre pelo ícone, como qualquer programa instalado.
 Para instalar à mão, sem o instalador:
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+python3 -m venv venv                       # no Linux: --system-site-packages
+source venv/bin/activate                   # Windows: venv\Scripts\activate
+pip install -r requirements-essenciais.txt # o que o AutoDoc não dispensa
+pip install -r requirements.txt            # + janela nativa e OCR (opcionais)
 python main.py app
 ```
+
+As dependências vêm em dois arquivos de propósito. O
+`requirements-essenciais.txt` tem o que o AutoDoc precisa para organizar
+documentos; o `requirements.txt` acrescenta a janela nativa e o OCR, que são
+recursos. O instalador trata o segundo como "o melhor que der": se a parte
+gráfica não instalar — o que acontece no Linux sem os pacotes acima — ele avisa
+e continua, em vez de abortar a instalação inteira.
 
 ### Configuração
 
@@ -287,8 +326,10 @@ continuá-lo:
   e ainda não foram testadas com contas e notas reais, que variam bastante de
   emissor para emissor.
 - **Windows e Linux.** O código é escrito para os três sistemas e os testes
-  cobrem as três variações de atalho, mas a execução de verdade só foi feita no
-  macOS.
+  cobrem as três variações de atalho e a instalação sem parte gráfica, mas a
+  execução de verdade só foi feita no macOS. O caminho do Linux foi corrigido a
+  partir de um relato real (Arch) e verificado por simulação, não numa máquina
+  Linux de verdade.
 - **Testes das telas.** O JavaScript (~700 linhas) não tem teste unitário: o
   `node` da máquina de desenvolvimento está quebrado e consertá-lo mexeria no
   sistema de quem está trabalhando. O que existe hoje é a checagem de sintaxe
