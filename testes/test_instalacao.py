@@ -196,44 +196,124 @@ class TestCriarAmbienteVirtual(BaseInstalacao):
 
 
 class TestInstalarDependencias(BaseInstalacao):
-    def processo(self, returncode=0, stdout="", stderr=""):
-        resultado = mock.Mock()
-        resultado.returncode = returncode
-        resultado.stdout, resultado.stderr = stdout, stderr
-        return resultado
+    """O resumo da saída do pip, que é o que a tela mostra."""
+
+    def resultado(self, returncode=0, stdout="", stderr=""):
+        return mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
 
     def test_resume_o_que_foi_instalado(self):
-        """A saída do pip é comprida; cortada no meio fica pior do que resumida."""
         saidas = [
-            self.processo(stdout="Collecting watchdog\nSuccessfully installed watchdog-4.0.0"),
-            self.processo(stdout="watchdog==4.0.0\npypdf==4.0.0"),
+            self.resultado(stdout="Collecting watchdog\nSuccessfully installed watchdog-4.0.0"),
+            self.resultado(stdout="Successfully installed pywebview-6.2.1 Pillow-11.0.0"),
+            self.resultado(stdout="watchdog==4.0.0\npypdf==4.0.0"),
         ]
         with mock.patch.object(instalador.subprocess, "run", side_effect=saidas):
             linhas, detalhe = self.rodar_sem_pasta(instalador.instalar_dependencias)
 
-        self.assertTrue(any("Successfully installed" in l for l in linhas))
+        self.assertTrue(any("Successfully installed watchdog" in l for l in linhas))
         self.assertTrue(any("2 pacotes" in l for l in linhas))
         self.assertIn("watchdog", detalhe)
 
     def test_quando_nada_e_novo_conta_o_que_ja_tinha(self):
-        saidas = [
-            self.processo(stdout="Requirement already satisfied: watchdog\n"
-                                 "Requirement already satisfied: pypdf\n"),
-            self.processo(stdout="watchdog==4.0.0"),
-        ]
+        ja_tinha = self.resultado(
+            stdout="Requirement already satisfied: watchdog\n"
+                   "Requirement already satisfied: pypdf\n")
+        saidas = [ja_tinha, ja_tinha, self.resultado(stdout="watchdog==4.0.0")]
         with mock.patch.object(instalador.subprocess, "run", side_effect=saidas):
             linhas, _ = self.rodar_sem_pasta(instalador.instalar_dependencias)
 
         self.assertTrue(any("2 dependências já estavam" in l for l in linhas))
 
-    def test_pip_que_falha_interrompe_com_o_erro_na_mensagem(self):
-        falhou = self.processo(returncode=1, stderr="ERROR: nao foi possivel resolver")
+    def test_resumir_pip_direto(self):
+        self.assertIn("Successfully installed x-1.0",
+                      instalador._resumir_pip("ruido\nSuccessfully installed x-1.0"))
+        self.assertIn("0 dependências", instalador._resumir_pip("nada aqui"))
+
+
+class TestAmbienteNoLinux(BaseInstalacao):
+    """No Linux o venv precisa enxergar os pacotes do sistema.
+
+    O motor da janela nativa la e o WebKitGTK, alcancado pelo `gi` do
+    gerenciador da distribuicao. Um venv isolado nao ve nada disso, o pywebview
+    nao acha motor, e quem tenta resolver pelo pip cai na compilacao do
+    PyGObject — que falha sem os headers.
+    """
+
+    def test_linux_ganha_system_site_packages(self):
+        with mock.patch.object(instalador.sys, "platform", "linux"):
+            self.assertEqual(instalador.opcoes_do_venv(), ["--system-site-packages"])
+
+    def test_macos_e_windows_ficam_isolados(self):
+        for plataforma in ("darwin", "win32"):
+            with self.subTest(plataforma=plataforma), \
+                 mock.patch.object(instalador.sys, "platform", plataforma):
+                self.assertEqual(instalador.opcoes_do_venv(), [])
+
+    def test_o_bootstrap_e_o_pacote_nao_podem_divergir(self):
+        """`instalar.py` roda antes do pacote existir e repete a decisão."""
+        import instalar
+
+        for plataforma in ("linux", "darwin", "win32"):
+            with self.subTest(plataforma=plataforma):
+                with mock.patch.object(instalador.sys, "platform", plataforma):
+                    do_pacote = instalador.opcoes_do_venv()
+                with mock.patch.object(instalar.sys, "platform", plataforma):
+                    do_bootstrap = instalar.opcoes_do_venv()
+                self.assertEqual(do_pacote, do_bootstrap)
+
+    def test_a_opcao_chega_ao_comando_do_venv(self):
+        with mock.patch.object(instalador, "_python_do_venv",
+                               return_value=self.base / "venv" / "bin" / "python"), \
+             mock.patch.object(instalador.sys, "platform", "linux"), \
+             mock.patch.object(instalador.subprocess, "run") as rodou:
+            linhas, _ = self.rodar_sem_pasta(instalador.criar_ambiente_virtual)
+
+        self.assertIn("--system-site-packages", rodou.call_args.args[0])
+        self.assertTrue(any("motor gráfico" in l for l in linhas))
+
+
+class TestDependenciasEmDoisNiveis(BaseInstalacao):
+    """A parte gráfica é recurso, não requisito."""
+
+    def resultado(self, returncode=0, stdout="", stderr=""):
+        return mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    def test_essenciais_e_opcionais_sao_instalados_em_passos_separados(self):
+        saidas = [self.resultado(stdout="Successfully installed watchdog-4.0.0"),
+                  self.resultado(stdout="Successfully installed pywebview-6.2.1"),
+                  self.resultado(stdout="watchdog==4.0.0")]
+        with mock.patch.object(instalador.subprocess, "run", side_effect=saidas) as rodou:
+            linhas, detalhe = self.rodar_sem_pasta(instalador.instalar_dependencias)
+
+        arquivos = [c.args[0][-1] for c in rodou.call_args_list[:2]]
+        self.assertIn(str(instalador.ESSENCIAIS), arquivos)
+        self.assertIn(str(instalador.COMPLETO), arquivos)
+        self.assertIn("pywebview", detalhe)
+
+    def test_a_parte_grafica_falhando_nao_derruba_a_instalacao(self):
+        """O caso do Arch: o pip quebra no PyGObject e o AutoDoc segue."""
+        saidas = [
+            self.resultado(stdout="Successfully installed watchdog-4.0.0"),
+            self.resultado(returncode=1, stderr="Building wheel for pygobject ... error\n"
+                                                "ERROR: Dependency 'girepository-2.0' not found"),
+            self.resultado(stdout="watchdog==4.0.0\npypdf==4.0.0"),
+        ]
+        with mock.patch.object(instalador.subprocess, "run", side_effect=saidas):
+            linhas, detalhe = self.rodar_sem_pasta(instalador.instalar_dependencias)
+
+        self.assertTrue(any("girepository" in l for l in linhas),
+                        "o motivo verdadeiro tem que aparecer")
+        self.assertTrue(any("funciona assim mesmo" in l for l in linhas))
+        self.assertIn("indisponível", detalhe)
+
+    def test_os_essenciais_falhando_ainda_interrompem(self):
+        """Sem watchdog e pypdf não há programa; aí parar é o certo."""
+        falhou = self.resultado(returncode=1, stderr="ERROR: rede indisponivel")
         with mock.patch.object(instalador.subprocess, "run", return_value=falhou):
             with self.assertRaises(RuntimeError) as erro:
                 list(instalador.instalar_dependencias({"detalhe": ""}))
 
-        self.assertIn("falha ao instalar", str(erro.exception))
-        self.assertIn("nao foi possivel resolver", str(erro.exception))
+        self.assertIn("rede indisponivel", str(erro.exception))
 
 
 class TestConfigurarOcr(BaseInstalacao):

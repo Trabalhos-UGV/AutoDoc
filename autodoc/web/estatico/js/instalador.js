@@ -9,7 +9,7 @@ import { ETAPAS, PASTA_MONITORADA } from './dados-demo.js';
 import { detectarModo, esperar, estadoDoServidor } from './modo.js';
 
 // Mantenha em passo com __version__ em autodoc/__init__.py.
-const VERSAO = '0.4.1';
+const VERSAO = '0.4.2';
 
 const MARCAS = { pronto: '✓', agora: '•', espera: '' };
 const LINHAS_VISIVEIS = 6;
@@ -236,6 +236,16 @@ function iniciarMotor() {
   return modo === 'real' ? motorReal() : motorDemonstracao();
 }
 
+/** Pede ao instalador que escolha a pasta — pelo seletor ou pelo que foi digitado. */
+async function pedirPasta(caminho) {
+  const resposta = await fetch('api/escolher-pasta', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(caminho ? { caminho } : {}),
+  });
+  return resposta.json();
+}
+
 /* ---------------------------------------------------------- interação */
 
 el.reiniciar.addEventListener('click', () => {
@@ -276,8 +286,18 @@ el.alterar.addEventListener('click', async () => {
     return;
   }
   try {
-    const resposta = await fetch('api/escolher-pasta', { method: 'POST' });
-    const { caminho, pasta_saida: pastaSaida } = await resposta.json();
+    let dados = await pedirPasta();
+
+    // Sem janela nativa não há seletor de pastas do sistema — é o caso do
+    // Linux com a tela aberta no navegador. Antes o botão simplesmente não
+    // fazia nada; agora ele pergunta o caminho.
+    if (dados.seletor === false) {
+      const digitada = window.prompt('Caminho da pasta a vigiar:', estado.pasta);
+      if (!digitada) return;
+      dados = await pedirPasta(digitada);
+    }
+
+    const { caminho, pasta_saida: pastaSaida } = dados;
     if (!caminho) return;
 
     estado.pasta = caminho;

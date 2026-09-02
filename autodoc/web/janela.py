@@ -22,9 +22,40 @@ programa.
 from __future__ import annotations
 
 import logging
+import shutil
+import sys
 import webbrowser
 
 logger = logging.getLogger(__name__)
+
+# O que instalar, por familia de distribuicao, para o pywebview achar um motor.
+#
+# No Linux o motor nao vem do pip: ele e o WebKitGTK do proprio sistema, mais o
+# `gi` (PyGObject) que faz a ponte. Mandar "pip install" aqui e o conselho
+# errado — as dependencias Python ja estao instaladas, e tentar resolver com
+# `pip install pywebview[gtk]` cai na compilacao do PyGObject, que pede
+# gobject-introspection, cairo e pkgconf. E o caminho mais rapido para se
+# perder.
+PACOTES_DO_MOTOR: dict[str, tuple[str, str]] = {
+    "pacman": ("Arch, Manjaro", "sudo pacman -S python-gobject webkit2gtk-4.1"),
+    "apt": ("Debian, Ubuntu, Mint", "sudo apt install python3-gi gir1.2-webkit2-4.1"),
+    "dnf": ("Fedora, RHEL", "sudo dnf install python3-gobject webkit2gtk4.1"),
+    "zypper": ("openSUSE", "sudo zypper install python3-gobject typelib-1_0-WebKit2-4_1"),
+}
+
+
+def receita_do_motor() -> tuple[str, str] | None:
+    """O comando que instala o motor grafico nesta maquina, se for Linux.
+
+    Descobre a familia pelo gerenciador de pacotes que existe no PATH, que e
+    mais confiavel do que ler /etc/os-release e mapear nomes de distribuicao.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    for gerenciador, (familia, comando) in PACOTES_DO_MOTOR.items():
+        if shutil.which(gerenciador):
+            return familia, comando
+    return None
 
 LARGURA_PADRAO = 1280
 ALTURA_PADRAO = 840
@@ -47,13 +78,36 @@ def disponivel() -> bool:
     return True
 
 
+def _como_resolver() -> str:
+    """A instrucao certa para esta maquina — e nao a generica de sempre."""
+    receita = receita_do_motor()
+    if receita:
+        familia, comando = receita
+        return (
+            f"\n  Para ter a janela propria ({familia}), instale o motor do sistema:"
+            f"\n      {comando}"
+            f"\n  Depois rode a instalacao de novo. Nao use `pip install"
+            f" pywebview[gtk]`:"
+            f"\n  ele tenta compilar o PyGObject e falha sem os headers de"
+            f" desenvolvimento."
+        )
+    if sys.platform.startswith("linux"):
+        return (
+            "\n  Para ter a janela propria, instale o PyGObject e o WebKitGTK"
+            "\n  pelo gerenciador de pacotes da sua distribuicao."
+        )
+    return (
+        "\n  Para ter a janela propria, instale as dependencias:"
+        "\n      pip install -r requirements.txt"
+    )
+
+
 def _cair_no_navegador(url: str, motivo: str) -> str:
     logger.warning("janela nativa indisponivel (%s); abrindo no navegador", motivo)
     print(
         f"\n  Nao consegui abrir a janela do AutoDoc: {motivo}."
         f"\n  Abrindo no navegador: {url}"
-        f"\n  Para ter a janela propria, instale as dependencias:"
-        f"\n      pip install -r requirements.txt\n"
+        f"{_como_resolver()}\n"
     )
     webbrowser.open(url)
     return "navegador"
@@ -65,11 +119,20 @@ def abrir(
     largura: int = LARGURA_PADRAO,
     altura: int = ALTURA_PADRAO,
     redimensionavel: bool = True,
+    minimo: tuple[int, int] = TAMANHO_MINIMO,
+    fundo: str = "#110f0b",
+    ao_criar=None,
 ) -> str:
     """Abre a janela e bloqueia ate ela ser fechada.
 
     Devolve 'nativa' ou 'navegador', conforme o que deu para fazer. Precisa ser
     chamada da thread principal.
+
+    `ao_criar` recebe a janela recem-criada. E por onde o instalador guarda a
+    referencia de que precisa para abrir o seletor de pastas do sistema — sem
+    isso ele teria que repetir aqui toda a logica de queda para o navegador, e
+    foi exatamente essa copia que deixou o instalador quebrando no Linux
+    enquanto o aplicativo caia no navegador direitinho.
     """
     try:
         import webview
@@ -77,15 +140,17 @@ def abrir(
         return _cair_no_navegador(url, "pywebview nao instalado")
 
     try:
-        webview.create_window(
+        janela = webview.create_window(
             titulo,
             url,
             width=largura,
             height=altura,
-            min_size=TAMANHO_MINIMO,
+            min_size=minimo,
             resizable=redimensionavel,
-            background_color="#110f0b",  # evita o flash branco antes de pintar
+            background_color=fundo,  # evita o flash branco antes de pintar
         )
+        if ao_criar is not None:
+            ao_criar(janela)
         webview.start()
     except Exception as erro:  # o motor nativo pode faltar no Linux
         return _cair_no_navegador(url, f"{type(erro).__name__}: {erro}")

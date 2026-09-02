@@ -58,6 +58,77 @@ class TestDisponivel(unittest.TestCase):
         falso.start.assert_not_called()
 
 
+class TestReceitaDoMotor(unittest.TestCase):
+    """No Linux, o motor da janela vem do sistema — não do pip.
+
+    Mandar `pip install -r requirements.txt` lá é conselho errado: as
+    dependências Python já estão instaladas, e quem tenta `pywebview[gtk]` cai
+    na compilação do PyGObject.
+    """
+
+    def receita_com(self, plataforma, gerenciador):
+        def which(nome):
+            return f"/usr/bin/{nome}" if nome == gerenciador else None
+
+        with mock.patch.object(janela.sys, "platform", plataforma), \
+             mock.patch.object(janela.shutil, "which", which):
+            return janela.receita_do_motor()
+
+    def test_fora_do_linux_nao_ha_receita(self):
+        for plataforma in ("darwin", "win32"):
+            with self.subTest(plataforma=plataforma):
+                self.assertIsNone(self.receita_com(plataforma, "pacman"))
+
+    def test_reconhece_a_familia_pelo_gerenciador_de_pacotes(self):
+        esperado = {
+            "pacman": ("Arch", "python-gobject"),
+            "apt": ("Debian", "python3-gi"),
+            "dnf": ("Fedora", "python3-gobject"),
+            "zypper": ("openSUSE", "python3-gobject"),
+        }
+        for gerenciador, (familia, pacote) in esperado.items():
+            with self.subTest(gerenciador=gerenciador):
+                achado = self.receita_com("linux", gerenciador)
+                self.assertIsNotNone(achado)
+                self.assertIn(familia, achado[0])
+                self.assertIn(pacote, achado[1])
+                self.assertIn(gerenciador, achado[1])
+
+    def test_linux_sem_gerenciador_conhecido(self):
+        self.assertIsNone(self.receita_com("linux", "gerenciador-exotico"))
+
+    def test_nenhuma_receita_manda_compilar_o_pygobject(self):
+        """Era esse o beco: `pywebview[gtk]` compila e falha sem os headers."""
+        for _, comando in janela.PACOTES_DO_MOTOR.values():
+            with self.subTest(comando=comando):
+                self.assertNotIn("pip", comando)
+
+
+class TestComoResolver(unittest.TestCase):
+    def instrucao(self, plataforma, gerenciador=None):
+        def which(nome):
+            return f"/usr/bin/{nome}" if nome == gerenciador else None
+
+        with mock.patch.object(janela.sys, "platform", plataforma), \
+             mock.patch.object(janela.shutil, "which", which):
+            return janela._como_resolver()
+
+    def test_arch_recebe_o_comando_do_pacman(self):
+        texto = self.instrucao("linux", "pacman")
+        self.assertIn("sudo pacman -S python-gobject webkit2gtk-4.1", texto)
+        self.assertIn("pywebview[gtk]", texto, "tem que avisar o que NÃO fazer")
+
+    def test_linux_desconhecido_recebe_a_orientacao_generica(self):
+        texto = self.instrucao("linux")
+        self.assertIn("PyGObject", texto)
+        self.assertIn("gerenciador de pacotes", texto)
+        self.assertNotIn("pip install", texto)
+
+    def test_fora_do_linux_o_conselho_continua_sendo_o_pip(self):
+        texto = self.instrucao("darwin")
+        self.assertIn("pip install -r requirements.txt", texto)
+
+
 class TestQuedaParaONavegador(unittest.TestCase):
     def abrir(self, **kwargs) -> tuple[str, str]:
         saida = io.StringIO()
@@ -84,6 +155,24 @@ class TestQuedaParaONavegador(unittest.TestCase):
         self.assertIn("requirements.txt", saida)
         self.assertIn("http://127.0.0.1:8757/", saida)
 
+    def test_no_linux_a_mensagem_ensina_o_pacote_do_sistema(self):
+        """A mensagem que teria evitado a compilação do PyGObject."""
+        falso = webview_falso(RuntimeError("You must have either QT or GTK"))
+
+        def which(nome):
+            return "/usr/bin/pacman" if nome == "pacman" else None
+
+        with com_pywebview(falso), \
+             mock.patch.object(janela.sys, "platform", "linux"), \
+             mock.patch.object(janela.shutil, "which", which), \
+             mock.patch.object(janela.webbrowser, "open"), \
+             self.assertLogs("autodoc.web.janela", "WARNING"):
+            resultado, saida = self.abrir()
+
+        self.assertEqual(resultado, "navegador")
+        self.assertIn("sudo pacman -S", saida)
+        self.assertNotIn("pip install -r requirements.txt", saida)
+
     def test_motor_nativo_ausente_tambem_cai_no_navegador(self):
         """O caso do Linux sem os pacotes do GTK: o import passa, o start não."""
         falso = webview_falso(RuntimeError("nenhum motor de webview encontrado"))
@@ -100,6 +189,27 @@ class TestQuedaParaONavegador(unittest.TestCase):
 
 
 class TestJanelaNativa(unittest.TestCase):
+    def test_entrega_a_janela_criada_a_quem_pediu(self):
+        """O instalador precisa da referência para abrir o seletor de pastas."""
+        falso = webview_falso()
+        recebida = []
+
+        with com_pywebview(falso):
+            janela.abrir("http://x/", ao_criar=recebida.append)
+
+        self.assertEqual(len(recebida), 1)
+        self.assertIs(recebida[0], falso.create_window.return_value)
+
+    def test_o_minimo_e_o_fundo_podem_ser_escolhidos(self):
+        """O instalador usa uma janela menor e um fundo diferente do app."""
+        falso = webview_falso()
+        with com_pywebview(falso):
+            janela.abrir("http://x/", minimo=(820, 640), fundo="#16140f")
+
+        opcoes = falso.create_window.call_args.kwargs
+        self.assertEqual(opcoes["min_size"], (820, 640))
+        self.assertEqual(opcoes["background_color"], "#16140f")
+
     def test_abre_a_janela_e_bloqueia_ate_fechar(self):
         falso = webview_falso()
         with com_pywebview(falso):
