@@ -125,22 +125,26 @@ def _pywebview_calado():
         registro.propagate = propaga
 
 
-def _ha_motor_grafico() -> str | None:
+def _ha_motor_grafico(webview) -> str | None:
     """Descobre se existe motor para desenhar a janela.
 
     Devolve None quando ha, e o motivo quando nao ha. A pergunta e feita ao
     proprio pywebview, em silencio, **antes** de abrir a janela — assim a queda
     para o navegador acontece limpa, com uma explicacao no lugar de dois
     tracebacks.
+
+    Recebe o modulo ja importado em vez de importar de novo por dentro. Buscar
+    `webview.guilib` por fora alcancaria o pywebview de verdade mesmo quando
+    quem chamou trabalha com outro — e sondar um pywebview diferente do que vai
+    abrir a janela responde sobre a maquina errada.
     """
-    try:
-        from webview.guilib import initialize
-    except ImportError:  # versao de pywebview que nao expoe a sondagem
+    sondar = getattr(webview, "initialize", None)
+    if sondar is None:  # versao de pywebview que nao expoe a sondagem
         return None
 
     with _pywebview_calado():
         try:
-            initialize()
+            sondar()
         except Exception as erro:
             return f"{type(erro).__name__}: {erro}"
     return None
@@ -183,7 +187,7 @@ def abrir(
     except ImportError:
         return _cair_no_navegador(url, "pywebview nao instalado")
 
-    sem_motor = _ha_motor_grafico()
+    sem_motor = _ha_motor_grafico(webview)
     if sem_motor:
         return _cair_no_navegador(url, sem_motor)
 

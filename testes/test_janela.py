@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 import sys
 import unittest
 from unittest import mock
@@ -56,6 +57,70 @@ class TestDisponivel(unittest.TestCase):
             janela.disponivel()
         falso.create_window.assert_not_called()
         falso.start.assert_not_called()
+
+
+class TestSondagemSilenciosa(unittest.TestCase):
+    """Procurar motor e falhar é uma resposta, não um defeito.
+
+    Ao procurar, o pywebview tenta GTK e depois Qt e registra cada tentativa
+    com `logger.exception` — duas pilhas completas. Num Linux sem WebKitGTK
+    isso enchia a tela de traceback para depois cair no navegador e funcionar,
+    e quem via concluía que o programa tinha quebrado.
+    """
+
+    def test_sem_motor_devolve_o_motivo(self):
+        falso = webview_falso()
+        falso.initialize = mock.Mock(side_effect=RuntimeError("nem GTK nem Qt"))
+
+        motivo = janela._ha_motor_grafico(falso)
+        self.assertIn("RuntimeError", motivo)
+        self.assertIn("nem GTK nem Qt", motivo)
+
+    def test_com_motor_nao_devolve_motivo(self):
+        falso = webview_falso()
+        falso.initialize = mock.Mock()
+        self.assertIsNone(janela._ha_motor_grafico(falso))
+
+    def test_pywebview_sem_sondagem_nao_atrapalha(self):
+        """Versão que não expõe `initialize`: segue o caminho antigo."""
+        falso = webview_falso()
+        del falso.initialize
+        self.assertIsNone(janela._ha_motor_grafico(falso))
+
+    def test_a_sondagem_nao_deixa_traceback_na_tela(self):
+        registro = logging.getLogger("pywebview")
+
+        def sondar_ruidoso():
+            try:
+                raise ModuleNotFoundError("No module named 'gi'")
+            except ModuleNotFoundError:
+                registro.exception("GTK cannot be loaded")
+            raise RuntimeError("You must have either QT or GTK")
+
+        falso = webview_falso()
+        falso.initialize = sondar_ruidoso
+
+        capturado = io.StringIO()
+        manipulador = logging.StreamHandler(capturado)
+        raiz = logging.getLogger()
+        raiz.addHandler(manipulador)
+        self.addCleanup(raiz.removeHandler, manipulador)
+
+        janela._ha_motor_grafico(falso)
+        self.assertNotIn("Traceback", capturado.getvalue())
+        self.assertNotIn("GTK cannot be loaded", capturado.getvalue())
+
+    def test_o_log_do_pywebview_e_devolvido_ao_normal(self):
+        """Calar durante a sondagem não pode calar para sempre."""
+        registro = logging.getLogger("pywebview")
+        nivel, propaga = registro.level, registro.propagate
+
+        falso = webview_falso()
+        falso.initialize = mock.Mock(side_effect=RuntimeError("sem motor"))
+        janela._ha_motor_grafico(falso)
+
+        self.assertEqual(registro.level, nivel)
+        self.assertEqual(registro.propagate, propaga)
 
 
 class TestReceitaDoMotor(unittest.TestCase):
@@ -172,6 +237,21 @@ class TestQuedaParaONavegador(unittest.TestCase):
         self.assertEqual(resultado, "navegador")
         self.assertIn("sudo pacman -S", saida)
         self.assertNotIn("pip install -r requirements.txt", saida)
+
+    def test_sem_motor_cai_no_navegador_sem_criar_janela(self):
+        """Descoberto antes de abrir: nem chega a montar uma janela natimorta."""
+        falso = webview_falso()
+        falso.initialize = mock.Mock(side_effect=RuntimeError("nem GTK nem Qt"))
+
+        with com_pywebview(falso), \
+             mock.patch.object(janela.webbrowser, "open") as navegador, \
+             self.assertLogs("autodoc.web.janela", "WARNING"):
+            resultado, _ = self.abrir()
+
+        self.assertEqual(resultado, "navegador")
+        navegador.assert_called_once()
+        falso.create_window.assert_not_called()
+        falso.start.assert_not_called()
 
     def test_motor_nativo_ausente_tambem_cai_no_navegador(self):
         """O caso do Linux sem os pacotes do GTK: o import passa, o start não."""
