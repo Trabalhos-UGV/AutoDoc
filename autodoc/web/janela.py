@@ -21,6 +21,7 @@ programa.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
 import sys
@@ -102,6 +103,53 @@ def _como_resolver() -> str:
     )
 
 
+@contextlib.contextmanager
+def _pywebview_calado():
+    """Cala o log do pywebview enquanto se descobre se ha motor grafico.
+
+    Ao procurar um motor, ele tenta importar GTK e depois Qt e registra cada
+    tentativa fracassada com `logger.exception` — dois tracebacks completos, um
+    pelo handler proprio dele e outro pela raiz. Num Linux sem WebKitGTK isso
+    enche a tela de pilha de excecao para depois cair no navegador e funcionar,
+    e quem ve conclui que o programa quebrou. Nao quebrou: a busca por motor
+    falhar e uma resposta, nao um defeito.
+    """
+    registro = logging.getLogger("pywebview")
+    nivel, propaga = registro.level, registro.propagate
+    registro.setLevel(logging.CRITICAL)
+    registro.propagate = False
+    try:
+        yield
+    finally:
+        registro.setLevel(nivel)
+        registro.propagate = propaga
+
+
+def _ha_motor_grafico(webview) -> str | None:
+    """Descobre se existe motor para desenhar a janela.
+
+    Devolve None quando ha, e o motivo quando nao ha. A pergunta e feita ao
+    proprio pywebview, em silencio, **antes** de abrir a janela — assim a queda
+    para o navegador acontece limpa, com uma explicacao no lugar de dois
+    tracebacks.
+
+    Recebe o modulo ja importado em vez de importar de novo por dentro. Buscar
+    `webview.guilib` por fora alcancaria o pywebview de verdade mesmo quando
+    quem chamou trabalha com outro — e sondar um pywebview diferente do que vai
+    abrir a janela responde sobre a maquina errada.
+    """
+    sondar = getattr(webview, "initialize", None)
+    if sondar is None:  # versao de pywebview que nao expoe a sondagem
+        return None
+
+    with _pywebview_calado():
+        try:
+            sondar()
+        except Exception as erro:
+            return f"{type(erro).__name__}: {erro}"
+    return None
+
+
 def _cair_no_navegador(url: str, motivo: str) -> str:
     logger.warning("janela nativa indisponivel (%s); abrindo no navegador", motivo)
     print(
@@ -138,6 +186,10 @@ def abrir(
         import webview
     except ImportError:
         return _cair_no_navegador(url, "pywebview nao instalado")
+
+    sem_motor = _ha_motor_grafico(webview)
+    if sem_motor:
+        return _cair_no_navegador(url, sem_motor)
 
     try:
         janela = webview.create_window(

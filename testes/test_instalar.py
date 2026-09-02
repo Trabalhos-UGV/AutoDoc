@@ -36,6 +36,80 @@ class TestOpcoesDoVenv(unittest.TestCase):
         self.assertEqual(self.opcoes_em("win32"), [])
 
 
+class TestAbrirVenvAoSistema(unittest.TestCase):
+    """Um venv criado antes da correção continua isolado.
+
+    No Linux é isso que impede o pywebview de achar o `gi` instalado pelo
+    gerenciador da distribuição. O conserto pedia apagar o venv e recomeçar —
+    um passo fácil de esquecer e chato de descobrir. Virar a chave no
+    `pyvenv.cfg`, que o interpretador lê a cada partida, faz o mesmo efeito sem
+    reinstalar nada.
+    """
+
+    def setUp(self):
+        self._temporaria = tempfile.TemporaryDirectory()
+        self.venv = Path(self._temporaria.name) / "venv"
+        self.venv.mkdir()
+        self.configuracao = self.venv / "pyvenv.cfg"
+        self.addCleanup(self._temporaria.cleanup)
+
+    def chave(self) -> str | None:
+        for linha in self.configuracao.read_text(encoding="utf-8").splitlines():
+            nome, separador, valor = linha.partition("=")
+            if separador and nome.strip() == instalar.CHAVE_SISTEMA:
+                return valor.strip()
+        return None
+
+    def test_venv_isolado_passa_a_enxergar_o_sistema(self):
+        self.configuracao.write_text(
+            "home = /usr/bin\ninclude-system-site-packages = false\nversion = 3.14.0\n",
+            encoding="utf-8")
+
+        self.assertTrue(instalar.abrir_venv_ao_sistema(self.venv))
+        self.assertEqual(self.chave(), "true")
+
+    def test_nao_mexe_no_que_ja_esta_certo(self):
+        self.configuracao.write_text(
+            "include-system-site-packages = true\n", encoding="utf-8")
+        self.assertFalse(instalar.abrir_venv_ao_sistema(self.venv))
+
+    def test_e_idempotente(self):
+        self.configuracao.write_text(
+            "include-system-site-packages = false\n", encoding="utf-8")
+        self.assertTrue(instalar.abrir_venv_ao_sistema(self.venv))
+        self.assertFalse(instalar.abrir_venv_ao_sistema(self.venv))
+
+    def test_arquivo_sem_a_chave_ganha_a_chave(self):
+        self.configuracao.write_text("home = /usr/bin\nversion = 3.14.0\n",
+                                     encoding="utf-8")
+        self.assertTrue(instalar.abrir_venv_ao_sistema(self.venv))
+        self.assertEqual(self.chave(), "true")
+
+    def test_preserva_as_outras_linhas(self):
+        """O `home` e o `version` são o que faz o venv funcionar."""
+        self.configuracao.write_text(
+            "home = /usr/bin\ninclude-system-site-packages = false\n"
+            "version = 3.14.0\nexecutable = /usr/bin/python3.14\n", encoding="utf-8")
+
+        instalar.abrir_venv_ao_sistema(self.venv)
+        texto = self.configuracao.read_text(encoding="utf-8")
+        self.assertIn("home = /usr/bin", texto)
+        self.assertIn("version = 3.14.0", texto)
+        self.assertIn("executable = /usr/bin/python3.14", texto)
+
+    def test_sem_pyvenv_cfg_nao_faz_nada(self):
+        self.assertFalse(instalar.abrir_venv_ao_sistema(self.venv / "inexistente"))
+
+    def test_sem_argumento_usa_o_venv_do_projeto_daquele_momento(self):
+        """Um padrão no parâmetro ficaria preso ao VENV da hora do import."""
+        self.configuracao.write_text(
+            "include-system-site-packages = false\n", encoding="utf-8")
+
+        with mock.patch.object(instalar, "VENV", self.venv):
+            self.assertTrue(instalar.abrir_venv_ao_sistema())
+        self.assertEqual(self.chave(), "true")
+
+
 class TestPythonDoVenv(unittest.TestCase):
     def test_caminho_por_sistema(self):
         casos = [("win32", "Scripts"), ("darwin", "bin"), ("linux", "bin")]
@@ -106,6 +180,22 @@ class TestPrepararAmbiente(BasePreparo):
         _, saida = self.encenar(tem=("watchdog", "pypdf", "webview", "pytesseract"))
         self.assertEqual(self.arquivos_pedidos(), [])
         self.assertEqual(saida, "")
+
+    def test_venv_antigo_do_linux_e_ajustado(self):
+        """O caso de quem já tinha instalado antes da correção."""
+        with mock.patch.object(instalar.sys, "platform", "linux"), \
+             mock.patch.object(instalar, "abrir_venv_ao_sistema",
+                               return_value=True) as ajustou:
+            _, saida = self.encenar(tem=("watchdog", "pypdf", "webview", "pytesseract"))
+
+        ajustou.assert_called_once()
+        self.assertIn("enxergar os pacotes do sistema", saida)
+
+    def test_fora_do_linux_o_venv_nao_e_mexido(self):
+        with mock.patch.object(instalar.sys, "platform", "darwin"), \
+             mock.patch.object(instalar, "abrir_venv_ao_sistema") as ajustou:
+            self.encenar(tem=("watchdog", "pypdf", "webview", "pytesseract"))
+        ajustou.assert_not_called()
 
     def test_venv_ausente_e_criado_com_as_opcoes_da_plataforma(self):
         with mock.patch.object(instalar.sys, "platform", "linux"):

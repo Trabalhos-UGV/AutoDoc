@@ -7,7 +7,7 @@
    exatamente a mentira que este arquivo evita. */
 
 // Mantenha em passo com __version__ em autodoc/__init__.py.
-const VERSAO = '0.4.2';
+const VERSAO = '0.4.3';
 
 const PACOTES = {
   windows: { arquivo: 'autodoc-setup.pyz', rotulo: 'Baixar para Windows' },
