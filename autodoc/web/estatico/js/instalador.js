@@ -9,7 +9,7 @@ import { ETAPAS, PASTA_MONITORADA } from './dados-demo.js';
 import { detectarModo, esperar, estadoDoServidor } from './modo.js';
 
 // Mantenha em passo com __version__ em autodoc/__init__.py.
-const VERSAO = '0.4.2';
+const VERSAO = '0.4.3';
 
 const MARCAS = { pronto: '✓', agora: '•', espera: '' };
 const LINHAS_VISIVEIS = 6;
