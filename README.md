@@ -138,6 +138,7 @@ python main.py app                # abre a janela do AutoDoc (padrão)
 python main.py monitorar          # monitora pela linha de comando, sem janela
 python main.py buscar "luz março" # busca nos documentos indexados
 python main.py listar             # últimos documentos processados
+python main.py gestos             # controla o mouse com a mão, pela webcam
 ```
 
 Com o AutoDoc aberto, qualquer arquivo colocado na pasta monitorada é lido,
@@ -174,7 +175,7 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 412 testes, ~11 segundos
+python -m unittest discover -s testes     # 475 testes, ~11 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
@@ -237,6 +238,56 @@ sistema sem instalá-lo. Para ver as três em sequência:
 python3 ferramentas/servir_demo.py
 ```
 
+### Controle por gestos (opcional)
+
+Mexe no mouse do computador com a mão, pela webcam. É um recurso à parte: não
+faz parte da organização de documentos, não é instalado pelo instalador e a
+falta dele não muda nada no resto do programa.
+
+```bash
+pip install -r requirements-gestos.txt   # OpenCV, MediaPipe, PyAutoGUI (~150 MB)
+python main.py gestos                    # --canhoto troca as mãos, --camera 1 escolhe outra webcam
+```
+
+Na primeira vez baixa o modelo da mão (7,8 MB) para o cache do usuário. Abre uma
+janela com a imagem da câmera e o gesto reconhecido; **Esc** fecha, e levar o
+mouse de verdade a um canto da tela é o freio de emergência.
+
+| Gesto | Ação |
+| --- | --- |
+| Mão aberta | Descanso — nada acontece |
+| V (indicador e médio abertos, afastados) | Move o cursor e arma o clique |
+| Depois do V, só o médio | Clique esquerdo |
+| Depois do V, só o indicador | Clique direito |
+| Depois do V, indicador e médio juntos | Clique duplo |
+| Punho fechado | Segura o botão e arrasta |
+| Pinça (polegar no indicador), mão principal | Para cima/baixo: volume. Para os lados: brilho |
+| Pinça, mão secundária | Rolagem vertical e horizontal |
+
+Os gestos são lidos com a mão **em pé**, dedos para cima e palma para a câmera.
+
+**macOS:** o sistema pede duas permissões para o aplicativo de onde o AutoDoc é
+aberto (Terminal, VS Code...): **Câmera**, que ele pede sozinho na primeira vez,
+e **Acessibilidade**, sem a qual os cliques são descartados em silêncio. Se ela
+faltar, o AutoDoc avisa e abre a tela certa dos Ajustes do Sistema. O brilho só
+responde na tela embutida; num monitor externo o resto continua funcionando.
+
+Cada sistema tem seu caminho para o que o PyAutoGUI não cobre:
+
+| | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Volume | pycaw (API de áudio) | AppleScript | `pactl` |
+| Brilho | screen-brightness-control | DisplayServices | screen-brightness-control |
+| Rolagem horizontal | API do Windows (`MOUSEEVENTF_HWHEEL`) | PyAutoGUI | PyAutoGUI |
+
+O conjunto de gestos vem do
+[Gesture-Controlled-Virtual-Mouse](https://github.com/Viral-Doshi/Gesture-Controlled-Virtual-Mouse),
+de Viral Doshi. O código não: o original é GPL-3.0, roda só no Windows e usa a
+API `mp.solutions` do MediaPipe, que não existe mais nas versões atuais — ele
+não instala num Python recente. Esta é uma reescrita sobre a API de tarefas
+(`HandLandmarker`), com o que depende do sistema isolado em
+`autodoc/gestos/sistema.py`.
+
 ## Estrutura do Projeto
 
 ```
@@ -252,6 +303,7 @@ autodoc/
   web/servidor.py   # servidor local: API e eventos que alimentam a tela
   web/janela.py     # janela nativa do sistema
   web/estatico/     # as telas (HTML, CSS, JS, fontes)
+  gestos/           # controle do mouse por gestos, pela webcam (opcional)
 site/               # landing page, publicável sozinha
 exemplos/           # documentos fictícios para experimentar
 recursos/           # ícone do aplicativo em cada formato
@@ -313,6 +365,7 @@ Além do escopo original da proposta, esta base inclui:
 - **Funcionamento offline**: as fontes ficam versionadas no projeto, então nada depende de internet.
 - **Modo demonstração** em todas as telas, para apresentar o sistema sem instalá-lo.
 - **Detecção de sistema operacional** na landing, oferecendo o download correspondente.
+- **Controle do mouse por gestos**, pela webcam, no Windows, no macOS e no Linux — mover, clicar, arrastar, rolar, volume e brilho. Opcional, com dependências à parte.
 
 ## O que ainda não está pronto
 
@@ -344,6 +397,11 @@ continuá-lo:
   o que é imediato para as centenas de documentos que uma pessoa acumula. Para
   dezenas de milhares o texto completo na memória passaria a incomodar, e aí
   valeria guardar o texto fora da ficha.
+- **Controle por gestos fora do macOS.** No Mac ele foi verificado com as
+  bibliotecas reais — detecção numa foto, leitura e escrita de volume e brilho —,
+  mas não com a webcam movendo o mouse. Windows e Linux estão cobertos por
+  testes com o sistema simulado, não numa máquina de verdade. Os limiares dos
+  gestos são os do projeto original e ainda não foram calibrados.
 - **Data por rótulo em texto muito corrido.** A distância entre o rótulo e a data
   é medida depois de juntar os espaços, então um rótulo seguido de muitas
   palavras ainda pode alcançar uma data que não é dele.
