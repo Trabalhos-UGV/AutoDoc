@@ -1,178 +1,166 @@
-"""Do gesto confirmado a acao no computador.
+"""Do gesto confirmado a acao no mouse do sistema.
 
-    V (indicador e medio abertos e afastados)  move o cursor e arma o clique
-    medio, com o clique armado                  clique esquerdo
-    indicador, com o clique armado              clique direito
-    dois dedos juntos, com o clique armado      clique duplo
-    punho                                       segura o botao e arrasta
-    pinca da mao principal                      brilho (lado) e volume (cima/baixo)
-    pinca da mao secundaria                     rolagem (lado e cima/baixo)
-    mao aberta                                  nada — e a posicao de descanso
+    nada                     move o cursor
+    pinca indicador, rapida  clique — duas seguidas, clique duplo
+    pinca indicador, segura  segura o botao e arrasta
+    pinca medio              clique direito
+    punho                    rola a tela, como um joystick
+    pinca da mao secundaria  volume (cima/baixo) e brilho (lados)
 
-O clique precisa ser armado pelo V para que abrir e fechar a mao no meio de um
-movimento nao clique sem querer.
+**Toque ou arrasto se decide depois.** Ao fechar a pinca o botao ainda nao e
+apertado: se ela abrir logo, sem a mao andar, foi um clique, dado no ponto onde
+a pinca fechou. Se demorar ou a mao andar, o botao desce ali e o arrasto
+comeca. Apertar logo de cara faria todo clique arrastar um pouco, porque a mao
+sempre se mexe ao fechar a pinca.
 
-**O cursor anda pelo deslocamento da mao, nao pela posicao dela.** Tremidas
-pequenas sao ignoradas, movimentos medios sao amortecidos e os grandes
-ampliados. E o que torna possivel acertar um botao pequeno com a mao no ar.
+**O punho e um joystick.** Fechar marca a origem; afastar o punho dela rola, e
+quanto mais longe, mais rapido. Voltar a origem para.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from typing import Callable, Sequence
 
-from autodoc.gestos.reconhecimento import Gesto, Ponto
+from autodoc.gestos.cursor import Cursor
+from autodoc.gestos.reconhecimento import Gesto, Ponto, centro_da_palma
 from autodoc.gestos.sistema import RecursoIndisponivel, Sistema
 
 logger = logging.getLogger(__name__)
 
-# Ponto da mao que guia o cursor: a base do dedo medio, o mais estavel.
-PONTO_CURSOR = 9
+# Pinca mais curta que isto e sem andar e um clique.
+TOQUE_MAXIMO = 0.30  # segundos
+ARRASTO_MINIMO = 12  # pixels de tela
 
-# Deslocamento minimo da pinca (em decimos do quadro) para contar como gesto.
-LIMIAR_PINCA = 0.3
+# Dois cliques mais proximos que isto viram um clique duplo.
+CLIQUE_DUPLO = 0.45  # segundos
 
-# Quadros com a pinca parada no mesmo nivel antes de repetir a acao.
-QUADROS_PINCA = 5
+# Deslocamento do joystick, em fracao do quadro, para cada nivel de velocidade.
+ZONA_ALAVANCA = 0.05
+
+INTERVALO_ROLAGEM = 0.08  # segundos entre dois passos de rolagem
+INTERVALO_AJUSTE = 0.25  # segundos entre dois passos de volume ou brilho
+PASSO_AJUSTE = 0.05  # 5% de volume ou brilho por passo
+
+
+class Alavanca:
+    """Joystick: a distancia da origem vira passos repetidos."""
+
+    def __init__(self, intervalo: float, zona: float = ZONA_ALAVANCA) -> None:
+        self.intervalo = intervalo
+        self.zona = zona
+        self.soltar()
+
+    def soltar(self) -> None:
+        self._origem: tuple[float, float] | None = None
+        self._ultimo = 0.0
+
+    def mover(self, x: float, y: float, agora: float) -> tuple[int, int]:
+        """(horizontal, vertical): positivo e direita e cima; 0 e parado.
+
+        So um eixo por vez — rolar na diagonal sem querer e o mais comum.
+        """
+        if self._origem is None:
+            self._origem, self._ultimo = (x, y), agora
+            return 0, 0
+        if agora - self._ultimo < self.intervalo:
+            return 0, 0
+
+        dx = int((x - self._origem[0]) / self.zona)
+        dy = int((self._origem[1] - y) / self.zona)
+        passo = (dx, 0) if abs(dx) > abs(dy) else (0, dy)
+        if passo != (0, 0):
+            self._ultimo = agora
+        return passo
 
 
 class Controlador:
     def __init__(self, mouse, sistema: Sistema) -> None:
         self.mouse = mouse
         self.sistema = sistema
-        self.largura, self.altura = mouse.size()
+        self.cursor = Cursor(*mouse.size())
 
-        self._mao_anterior: tuple[float, float] | None = None
-        self._clique_armado = False
+        self.gesto = Gesto.NENHUM
+        self._pinca_inicio = 0.0
+        self._pinca_origem = (0, 0)
         self._arrastando = False
-        self._pinca_ativa: int | None = None
-        self._pinca_inicio = (0.0, 0.0)
-        self._pinca_horizontal: bool | None = None
-        self._pinca_nivel = 0.0
-        self._pinca_quadros = 0
+        self._ultimo_clique = -math.inf
+        self._rolagem = Alavanca(INTERVALO_ROLAGEM)
+        self._ajuste = Alavanca(INTERVALO_AJUSTE)
         self._avisados: set[str] = set()
 
-    def aplicar(self, gesto: int, pontos: Sequence[Ponto]) -> None:
+    def aplicar(self, gesto: Gesto, pontos: Sequence[Ponto] | None, agora: float) -> None:
+        """O gesto da mao principal neste quadro."""
+        anterior, self.gesto = self.gesto, gesto
+        if anterior == Gesto.PINCA_INDICADOR and gesto != Gesto.PINCA_INDICADOR:
+            self._soltar_pinca(agora)
         if gesto != Gesto.PUNHO:
-            self._soltar()
-        if gesto not in (Gesto.PINCA_PRINCIPAL, Gesto.PINCA_SECUNDARIA):
-            self._pinca_ativa = None
+            self._rolagem.soltar()
+        if gesto == Gesto.NENHUM:
+            self.cursor.reiniciar()
+            return
 
-        destino = self._destino(pontos) if gesto != Gesto.PALMA else None
+        palma = centro_da_palma(pontos)
+        x, y = self.cursor.posicionar(*palma, agora)
 
-        if gesto == Gesto.V:
-            self._clique_armado = True
-            self.mouse.moveTo(*destino)
+        if gesto == Gesto.MOVER:
+            self.mouse.moveTo(x, y)
+        elif gesto == Gesto.PINCA_INDICADOR:
+            self._pinca(x, y, agora, nova=anterior != Gesto.PINCA_INDICADOR)
+        elif gesto == Gesto.PINCA_MEDIO:
+            if anterior != Gesto.PINCA_MEDIO:
+                self.mouse.click(button="right")
         elif gesto == Gesto.PUNHO:
-            if not self._arrastando:
-                self._arrastando = True
-                self.mouse.mouseDown(button="left")
-            self.mouse.moveTo(*destino)
-        elif gesto == Gesto.MEDIO and self._clique_armado:
-            self._clique_armado = False
-            self.mouse.click()
-        elif gesto == Gesto.INDICADOR and self._clique_armado:
-            self._clique_armado = False
-            self.mouse.click(button="right")
-        elif gesto == Gesto.DOIS_JUNTOS and self._clique_armado:
-            self._clique_armado = False
-            self.mouse.doubleClick()
-        elif gesto == Gesto.PINCA_SECUNDARIA:
-            self._pinca(gesto, pontos, self._rolar_horizontal, self._rolar_vertical)
-        elif gesto == Gesto.PINCA_PRINCIPAL:
-            self._pinca(gesto, pontos, self._brilho, self._volume)
+            horizontal, vertical = self._rolagem.mover(*palma, agora)
+            if vertical:
+                self.sistema.rolar_vertical(vertical)
+            if horizontal:
+                self.sistema.rolar_horizontal(horizontal)
 
-    def mao_sumiu(self) -> None:
-        """A mao saiu do quadro: esquece a posicao e larga o que segurava.
+    def aplicar_secundaria(self, gesto: Gesto, pontos: Sequence[Ponto] | None, agora: float) -> None:
+        """A outra mao so ajusta volume e brilho, com a pinca do indicador."""
+        if gesto != Gesto.PINCA_INDICADOR:
+            self._ajuste.soltar()
+            return
+        horizontal, vertical = self._ajuste.mover(*centro_da_palma(pontos), agora)
+        if vertical:
+            self._ajustar(self.sistema.ajustar_volume, vertical * PASSO_AJUSTE)
+        if horizontal:
+            self._ajustar(self.sistema.ajustar_brilho, horizontal * PASSO_AJUSTE)
 
-        Sem soltar aqui, perder a mao de vista no meio de um arrasto deixava o
-        botao do mouse preso.
-        """
-        self._mao_anterior = None
-        self._soltar()
-
-    def _soltar(self) -> None:
+    def soltar_tudo(self) -> None:
+        """Ao fechar: nenhum botao fica apertado para tras."""
         if self._arrastando:
             self._arrastando = False
             self.mouse.mouseUp(button="left")
+        self.gesto = Gesto.NENHUM
 
-    def _destino(self, pontos: Sequence[Ponto]) -> tuple[int, int]:
-        mao = (pontos[PONTO_CURSOR].x * self.largura, pontos[PONTO_CURSOR].y * self.altura)
-        anterior = self._mao_anterior or mao
-        self._mao_anterior = mao
-
-        dx, dy = mao[0] - anterior[0], mao[1] - anterior[1]
-        quadrado = dx * dx + dy * dy
-        if quadrado <= 25:
-            fator = 0.0
-        elif quadrado <= 900:
-            fator = 0.07 * quadrado ** 0.5
-        else:
-            fator = 2.1
-
-        x, y = self.mouse.position()
-        # Um pixel longe dos cantos: o canto e o freio de emergencia do
-        # PyAutoGUI, reservado para a mao no mouse de verdade.
-        return (
-            round(min(max(x + dx * fator, 1), self.largura - 2)),
-            round(min(max(y + dy * fator, 1), self.altura - 2)),
-        )
-
-    def _pinca(
-        self,
-        gesto: int,
-        pontos: Sequence[Ponto],
-        horizontal: Callable[[float], None],
-        vertical: Callable[[float], None],
-    ) -> None:
-        """Pinca e arrastar: o eixo escolhe a acao, a distancia a intensidade.
-
-        A acao so dispara depois de a mao ficar alguns quadros no mesmo nivel,
-        e repete enquanto ela continuar la — segurar a pinca acima do ponto de
-        partida continua subindo o volume.
-        """
-        if self._pinca_ativa != gesto:
-            self._pinca_ativa = gesto
-            self._pinca_inicio = (pontos[8].x, pontos[8].y)
-            self._pinca_horizontal = None
-            self._pinca_nivel = 0.0
-            self._pinca_quadros = 0
-
-        if self._pinca_quadros == QUADROS_PINCA:
-            self._pinca_quadros = 0
-            if self._pinca_horizontal is True:
-                horizontal(self._pinca_nivel)
-            elif self._pinca_horizontal is False:
-                vertical(self._pinca_nivel)
-
-        nivel_x = round((pontos[8].x - self._pinca_inicio[0]) * 10, 1)
-        nivel_y = round((self._pinca_inicio[1] - pontos[8].y) * 10, 1)
-
-        if abs(nivel_y) > abs(nivel_x) and abs(nivel_y) > LIMIAR_PINCA:
-            self._pinca_horizontal, nivel = False, nivel_y
-        elif abs(nivel_x) > LIMIAR_PINCA:
-            self._pinca_horizontal, nivel = True, nivel_x
-        else:
+    def _pinca(self, x: int, y: int, agora: float, nova: bool) -> None:
+        if nova:
+            self._pinca_inicio, self._pinca_origem = agora, (x, y)
             return
+        if not self._arrastando:
+            andou = math.dist((x, y), self._pinca_origem) > ARRASTO_MINIMO
+            if not andou and agora - self._pinca_inicio <= TOQUE_MAXIMO:
+                return
+            self._arrastando = True
+            self.mouse.mouseDown(*self._pinca_origem, button="left")
+        # dragTo, e nao moveTo: no macOS mover com o botao apertado precisa
+        # ser um evento de arrasto, senao o sistema nao arrasta nada.
+        self.mouse.dragTo(x, y, button="left", mouseDownUp=False)
 
-        if abs(self._pinca_nivel - nivel) < LIMIAR_PINCA:
-            self._pinca_quadros += 1
+    def _soltar_pinca(self, agora: float) -> None:
+        if self._arrastando:
+            self._arrastando = False
+            self.mouse.mouseUp(button="left")
+            return
+        if agora - self._ultimo_clique < CLIQUE_DUPLO:
+            self.sistema.clique_duplo(*self._pinca_origem)
+            self._ultimo_clique = -math.inf
         else:
-            self._pinca_nivel = nivel
-            self._pinca_quadros = 0
-
-    def _rolar_vertical(self, nivel: float) -> None:
-        self.sistema.rolar_vertical(1 if nivel > 0 else -1)
-
-    def _rolar_horizontal(self, nivel: float) -> None:
-        self.sistema.rolar_horizontal(1 if nivel > 0 else -1)
-
-    def _volume(self, nivel: float) -> None:
-        self._ajustar(self.sistema.ajustar_volume, nivel / 50)
-
-    def _brilho(self, nivel: float) -> None:
-        self._ajustar(self.sistema.ajustar_brilho, nivel / 50)
+            self.mouse.click(*self._pinca_origem)
+            self._ultimo_clique = agora
 
     def _ajustar(self, ajuste: Callable[[float], None], delta: float) -> None:
         """Volume e brilho podem faltar sem derrubar o mouse. Avisa uma vez so."""
