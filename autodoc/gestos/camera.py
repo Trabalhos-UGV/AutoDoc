@@ -1,14 +1,23 @@
-"""A webcam, o MediaPipe e o laco que liga os dois ao controlador.
+"""A webcam, o MediaPipe e o laco que liga os dois a quem usa os gestos.
 
-**O modelo da mao nao vem no pip.** A API de tarefas do MediaPipe pede o arquivo
+Dois usam: o controle do mouse (`executar`, aqui) e o quadro de desenho
+(`quadro.py`). Os dois recebem a mesma coisa de `Sessao.quadros()`: a imagem ja
+espelhada, as maos com os pontos espelhados e o instante do quadro.
+
+**Detecta na imagem original, espelha depois.** O MediaPipe diz se a mao e
+direita ou esquerda olhando a imagem; espelhada, ele troca as duas. A primeira
+versao espelhava antes — como o projeto original, feito para a API antiga — e a
+mao direita de quem usava virava a secundaria, que nao move o cursor.
+
+**O modelo da mao nao vem no pip.** A API de tarefas pede o arquivo
 `hand_landmarker.task` (7,8 MB), baixado do Google na primeira vez e guardado no
 cache do usuario, fora do repositorio. Baixa por `curl`, que existe no macOS e
 no Windows 10+: o Python do python.org no macOS nao traz a cadeia de
 certificados, e o `urllib` falha no TLS — ele fica so de reserva.
 
 **A janela da camera precisa da thread principal**, pelo mesmo motivo da janela
-do app: no macOS o Cocoa nao desenha janela em outra. Por isso `executar()`
-bloqueia, e e chamada direto pelo `main.py`.
+do app: no macOS o Cocoa nao desenha janela em outra. Por isso tudo aqui
+bloqueia, e e chamado direto pelo `main.py`.
 """
 
 from __future__ import annotations
@@ -24,7 +33,7 @@ from pathlib import Path
 
 from autodoc.gestos import GestosIndisponiveis
 from autodoc.gestos.controle import Controlador
-from autodoc.gestos.reconhecimento import Gesto, Mao, separar_maos
+from autodoc.gestos.reconhecimento import Gesto, Mao, aberturas, espelhar, separar_maos
 from autodoc.gestos.sistema import sistema_atual
 
 logger = logging.getLogger(__name__)
@@ -42,7 +51,10 @@ TECLAS_SAIR = {13, 27, ord("q")}
 # Quadros seguidos sem imagem antes de desistir da camera.
 FALHAS_TOLERADAS = 60
 
-TITULO = "AutoDoc - gestos (Esc para sair)"
+# Cores em BGR, como o OpenCV quer.
+COR_PRINCIPAL = (80, 200, 60)
+COR_SECUNDARIA = (0, 140, 255)
+COR_LINHA = (200, 200, 200)
 
 
 def pasta_cache(plataforma: str | None = None) -> Path:
@@ -76,15 +88,23 @@ def obter_modelo(destino: Path | None = None) -> Path:
     return destino
 
 
-def importar_dependencias():
+def importar_visao():
+    """OpenCV e MediaPipe: o que a camera e o quadro de desenho precisam."""
     try:
         import cv2
         import mediapipe
-        import pyautogui
         from mediapipe.tasks.python import BaseOptions, vision
     except ImportError as erro:
         raise GestosIndisponiveis(f"falta {erro.name}; rode: {INSTALAR}") from erro
-    return cv2, mediapipe, pyautogui, BaseOptions, vision
+    return cv2, mediapipe, BaseOptions, vision
+
+
+def importar_mouse():
+    try:
+        import pyautogui
+    except ImportError as erro:
+        raise GestosIndisponiveis(f"falta {erro.name}; rode: {INSTALAR}") from erro
+    return pyautogui
 
 
 class Detector:
@@ -104,13 +124,14 @@ class Detector:
         self._ultimo_ms = -1
 
     def detectar(self, quadro_rgb) -> list[tuple[str, list]]:
+        """As maos de um quadro NAO espelhado, com os pontos ja espelhados."""
         # O modo video exige carimbo de tempo estritamente crescente.
         agora = max(time.monotonic_ns() // 1_000_000, self._ultimo_ms + 1)
         self._ultimo_ms = agora
         imagem = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=quadro_rgb)
         resultado = self._detector.detect_for_video(imagem, agora)
         return [
-            (lado[0].category_name, pontos)
+            (lado[0].category_name, espelhar(pontos))
             for lado, pontos in zip(resultado.handedness, resultado.hand_landmarks)
         ]
 
@@ -118,95 +139,117 @@ class Detector:
         self._detector.close()
 
 
-def desenhar(cv2, quadro, maos, conexoes, gesto: int) -> None:
-    altura, largura = quadro.shape[:2]
-    for _, pontos in maos:
-        tela = [(round(p.x * largura), round(p.y * altura)) for p in pontos]
-        for inicio, fim in conexoes:
-            cv2.line(quadro, tela[inicio], tela[fim], (200, 200, 200), 2)
-        for ponto in tela:
-            cv2.circle(quadro, ponto, 4, (0, 140, 255), -1)
-    nome = Gesto(gesto).name.lower() if gesto in Gesto._value2member_map_ else f"dedos {gesto:04b}"
-    cv2.putText(quadro, nome, (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 140, 255), 2)
+class Sessao:
+    """Camera aberta, detector carregado e a janela onde tudo aparece."""
 
+    def __init__(self, cv2, mediapipe, BaseOptions, vision, camera: int, titulo: str) -> None:
+        self.cv2 = cv2
+        self.titulo = titulo
+        self.captura = cv2.VideoCapture(camera)
+        if not self.captura.isOpened():
+            raise GestosIndisponiveis(
+                f"nao consegui abrir a camera {camera}. Confira se outro programa a esta usando"
+                + (" e se o aplicativo tem acesso em Ajustes > Privacidade > Camera" if sys.platform == "darwin" else "")
+            )
+        try:
+            self.detector = Detector(mediapipe, BaseOptions, vision, obter_modelo())
+        except BaseException:
+            self.captura.release()
+            raise
+        self.conexoes = self.detector.conexoes
 
-def janela_aberta(cv2) -> bool:
-    """Se a pessoa nao fechou a janela pelo botao do sistema.
+    def __enter__(self) -> "Sessao":
+        return self
 
-    No Windows a propriedade cai para 0; no macOS a janela fechada some, e a
-    consulta levanta erro em vez de responder.
-    """
-    try:
-        return cv2.getWindowProperty(TITULO, cv2.WND_PROP_VISIBLE) >= 1
-    except cv2.error:
-        return False
+    def __exit__(self, *_) -> None:
+        self.detector.fechar()
+        self.captura.release()
+        self.cv2.destroyAllWindows()
 
-
-def executar(camera: int = 0, destro: bool = True) -> int:
-    """Liga a camera e controla o mouse ate a pessoa fechar a janela."""
-    cv2, mediapipe, pyautogui, BaseOptions, vision = importar_dependencias()
-
-    # Sem isto o PyAutoGUI dorme 0,1 s depois de cada chamada: o cursor anda
-    # a 10 quadros por segundo, e e daqui que vem a fama de "mouse travado".
-    pyautogui.PAUSE = 0
-    sistema = sistema_atual(pyautogui)
-    faltando = sistema.permissoes_faltando()
-    if faltando:
-        raise GestosIndisponiveis("\n".join(faltando))
-
-    captura = cv2.VideoCapture(camera)
-    if not captura.isOpened():
-        raise GestosIndisponiveis(
-            f"nao consegui abrir a camera {camera}. Confira se outro programa a esta usando"
-            + (" e se o aplicativo tem acesso em Ajustes > Privacidade > Camera" if sys.platform == "darwin" else "")
-        )
-
-    detector = Detector(mediapipe, BaseOptions, vision, obter_modelo())
-    controlador = Controlador(pyautogui, sistema)
-    principal, secundaria = Mao(), Mao(secundaria=True)
-    falhas = 0
-    print(f"gestos ligados ({sistema.nome}). Mao aberta descansa; Esc fecha. Mouse no canto da tela e o freio.")
-
-    try:
+    def quadros(self):
+        """(imagem espelhada, maos, instante) ate a camera parar."""
+        falhas = 0
         while True:
-            lido, quadro = captura.read()
+            lido, quadro = self.captura.read()
             if not lido:
                 falhas += 1
                 if falhas > FALHAS_TOLERADAS:
                     raise GestosIndisponiveis("a camera parou de mandar imagem")
                 continue
             falhas = 0
+            maos = self.detector.detectar(self.cv2.cvtColor(quadro, self.cv2.COLOR_BGR2RGB))
+            yield self.cv2.flip(quadro, 1), maos, time.monotonic()
 
-            # Espelhado, como num espelho: mao para a direita, cursor para a direita.
-            quadro = cv2.flip(quadro, 1)
-            maos = detector.detectar(cv2.cvtColor(quadro, cv2.COLOR_BGR2RGB))
+    def mostrar(self, imagem) -> int | None:
+        """Desenha a imagem; devolve a tecla apertada, ou None para encerrar."""
+        self.cv2.imshow(self.titulo, imagem)
+        tecla = self.cv2.waitKey(1) & 0xFF
+        if tecla in TECLAS_SAIR or not self.janela_aberta():
+            return None
+        return tecla
 
-            gesto = Gesto.PALMA
-            if maos:
+    def janela_aberta(self) -> bool:
+        """Se a pessoa nao fechou a janela pelo botao do sistema.
+
+        No Windows a propriedade cai para 0; no macOS a janela fechada some, e a
+        consulta levanta erro em vez de responder.
+        """
+        try:
+            return self.cv2.getWindowProperty(self.titulo, self.cv2.WND_PROP_VISIBLE) >= 1
+        except self.cv2.error:
+            return False
+
+
+def desenhar(cv2, quadro, maos, conexoes, principal, legendas) -> None:
+    """Os pontos das maos — a principal em verde — e as legendas no topo."""
+    altura, largura = quadro.shape[:2]
+    for _, pontos in maos:
+        cor = COR_PRINCIPAL if pontos is principal else COR_SECUNDARIA
+        tela = [(round(p.x * largura), round(p.y * altura)) for p in pontos]
+        for inicio, fim in conexoes:
+            cv2.line(quadro, tela[inicio], tela[fim], COR_LINHA, 2)
+        for ponto in tela:
+            cv2.circle(quadro, ponto, 4, cor, -1)
+    for linha, texto in enumerate(legendas):
+        cv2.putText(quadro, texto, (12, 32 + 30 * linha), cv2.FONT_HERSHEY_SIMPLEX, 0.8, COR_PRINCIPAL, 2)
+
+
+def legenda(gesto: Gesto, pontos) -> str:
+    """O gesto e as duas medidas da pinca — o que se olha para calibrar."""
+    if pontos is None:
+        return gesto.value
+    indicador, medio = aberturas(pontos)
+    return f"{gesto.value}  |  pinca indicador {indicador:.2f}  medio {medio:.2f}"
+
+
+def executar(camera: int = 0, destro: bool = True) -> int:
+    """Liga a camera e controla o mouse ate a pessoa fechar a janela."""
+    cv2, mediapipe, BaseOptions, vision = importar_visao()
+    pyautogui = importar_mouse()
+
+    # Sem isto o PyAutoGUI dorme 0,1 s depois de cada chamada, e o cursor anda
+    # a 10 quadros por segundo.
+    pyautogui.PAUSE = 0
+    sistema = sistema_atual(pyautogui)
+    faltando = sistema.permissoes_faltando()
+    if faltando:
+        raise GestosIndisponiveis("\n".join(faltando))
+
+    with Sessao(cv2, mediapipe, BaseOptions, vision, camera, "AutoDoc - gestos (Esc para sair)") as sessao:
+        controlador = Controlador(pyautogui, sistema)
+        principal, secundaria = Mao(), Mao()
+        print(f"gestos ligados ({sistema.nome}). Esc fecha; mouse no canto da tela e o freio.")
+        try:
+            for quadro, maos, agora in sessao.quadros():
                 pontos_principal, pontos_secundaria = separar_maos(maos, destro)
-                gesto_secundaria = secundaria.atualizar(pontos_secundaria)
-                gesto_principal = principal.atualizar(pontos_principal)
-                if gesto_secundaria == Gesto.PINCA_SECUNDARIA:
-                    gesto = gesto_secundaria
-                    controlador.aplicar(gesto, secundaria.pontos)
-                else:
-                    # Sem a mao principal, atualizar() da palma, que solta o arrasto.
-                    gesto = gesto_principal
-                    controlador.aplicar(gesto, principal.pontos)
-            else:
-                controlador.mao_sumiu()
+                controlador.aplicar(principal.atualizar(pontos_principal), pontos_principal, agora)
+                controlador.aplicar_secundaria(secundaria.atualizar(pontos_secundaria), pontos_secundaria, agora)
 
-            desenhar(cv2, quadro, maos, detector.conexoes, gesto)
-            cv2.imshow(TITULO, quadro)
-            if cv2.waitKey(5) & 0xFF in TECLAS_SAIR:
-                break
-            if not janela_aberta(cv2):
-                break
-    except pyautogui.FailSafeException:
-        print("freio acionado: o mouse foi levado ao canto da tela.")
-    finally:
-        controlador.mao_sumiu()
-        detector.fechar()
-        captura.release()
-        cv2.destroyAllWindows()
+                desenhar(cv2, quadro, maos, sessao.conexoes, pontos_principal, [legenda(principal.gesto, pontos_principal)])
+                if sessao.mostrar(quadro) is None:
+                    break
+        except pyautogui.FailSafeException:
+            print("freio acionado: o mouse foi levado ao canto da tela.")
+        finally:
+            controlador.soltar_tudo()
     return 0
