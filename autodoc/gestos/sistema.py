@@ -12,6 +12,10 @@ Mover e clicar o PyAutoGUI resolve igual nos tres. O resto nao:
 - **Rolagem.** A unidade muda: no Windows uma volta da roda vale 120, no macOS
   a conta e em linhas. E o PyAutoGUI no Windows nao rola na horizontal — o
   `hscroll` dele rola na vertical —, entao la vai direto pela API do Windows.
+- **Clique duplo.** No Windows e no Linux o sistema decide pelo intervalo entre
+  dois cliques. No macOS nao: cada evento diz se e o primeiro ou o segundo
+  clique, e o PyAutoGUI manda todos como primeiro — o `doubleClick()` dele
+  nunca abriu uma pasta no Finder.
 
 Cada ajuste recebe um delta entre -1 e 1 sobre o valor atual, ja que o gesto e
 "mais um pouco", e nao "va para 70%".
@@ -37,7 +41,8 @@ class Sistema:
     """O comportamento comum; cada sistema troca o que precisa."""
 
     nome = "desconhecido"
-    # Quanto cada passo do gesto de rolagem rola, na unidade do sistema.
+    # Quanto cada passo do gesto de rolagem rola, na unidade do sistema. O passo
+    # se repete varias vezes por segundo enquanto o punho esta fechado.
     passo_rolagem = 1
 
     def __init__(self, mouse) -> None:
@@ -50,6 +55,10 @@ class Sistema:
     def rolar_horizontal(self, sentido: int) -> None:
         """`sentido` 1 vai para a direita, -1 para a esquerda."""
         self.mouse.hscroll(sentido * self.passo_rolagem)
+
+    def clique_duplo(self, x: int, y: int) -> None:
+        """O segundo clique de um duplo; o primeiro ja foi dado."""
+        self.mouse.click(x, y)
 
     def ajustar_volume(self, delta: float) -> None:
         raise RecursoIndisponivel(f"volume nao suportado em {self.nome}")
@@ -85,12 +94,20 @@ class Windows(Sistema):
 
 class MacOS(Sistema):
     nome = "macOS"
-    passo_rolagem = 8  # linhas
+    passo_rolagem = 2  # linhas
 
     DISPLAY_SERVICES = "/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices"
     CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
     APPLICATION_SERVICES = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
     AJUSTES_ACESSIBILIDADE = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+
+    def clique_duplo(self, x: int, y: int) -> None:
+        import Quartz  # vem com o PyAutoGUI no macOS
+
+        for tipo in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
+            evento = Quartz.CGEventCreateMouseEvent(None, tipo, (x, y), Quartz.kCGMouseButtonLeft)
+            Quartz.CGEventSetIntegerValueField(evento, Quartz.kCGMouseEventClickState, 2)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, evento)
 
     def ajustar_volume(self, delta: float) -> None:
         lido = _osascript("output volume of (get volume settings)")
