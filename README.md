@@ -175,7 +175,7 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 475 testes, ~11 segundos
+python -m unittest discover -s testes     # 502 testes, ~11 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
@@ -246,25 +246,27 @@ falta dele não muda nada no resto do programa.
 
 ```bash
 pip install -r requirements-gestos.txt   # OpenCV, MediaPipe, PyAutoGUI (~150 MB)
-python main.py gestos                    # --canhoto troca as mãos, --camera 1 escolhe outra webcam
+python main.py gestos --quadro           # quadro de desenho, para treinar sem mexer no mouse
+python main.py gestos                    # controla o mouse; --canhoto troca as mãos, --camera 1 escolhe outra webcam
 ```
 
 Na primeira vez baixa o modelo da mão (7,8 MB) para o cache do usuário. Abre uma
-janela com a imagem da câmera e o gesto reconhecido; **Esc** fecha, e levar o
-mouse de verdade a um canto da tela é o freio de emergência.
+janela com a imagem da câmera, o gesto reconhecido e as medidas da pinça;
+**Esc** fecha, e levar o mouse de verdade a um canto da tela é o freio de
+emergência.
 
-| Gesto | Ação |
-| --- | --- |
-| Mão aberta | Descanso — nada acontece |
-| V (indicador e médio abertos, afastados) | Move o cursor e arma o clique |
-| Depois do V, só o médio | Clique esquerdo |
-| Depois do V, só o indicador | Clique direito |
-| Depois do V, indicador e médio juntos | Clique duplo |
-| Punho fechado | Segura o botão e arrasta |
-| Pinça (polegar no indicador), mão principal | Para cima/baixo: volume. Para os lados: brilho |
-| Pinça, mão secundária | Rolagem vertical e horizontal |
+| Gesto | Mouse | Quadro de desenho |
+| --- | --- | --- |
+| Mão aberta, sem pinça | Move o cursor | Move o cursor |
+| Pinça polegar + indicador | Rápida: clique. Duas seguidas: clique duplo. Segurada: arrasta | Desenha |
+| Pinça polegar + médio | Clique direito | Apaga a região do cursor |
+| Punho fechado | Rola a tela, como um joystick: quanto mais longe de onde fechou, mais rápido | — |
+| Pinça polegar + indicador, mão secundária | Para cima/baixo: volume. Para os lados: brilho | — |
 
-Os gestos são lidos com a mão **em pé**, dedos para cima e palma para a câmera.
+Com uma mão só na frente da câmera, ela é sempre a principal. O cursor segue o
+centro da palma — e não a ponta do dedo, que se mexe ao fazer a pinça — dentro
+de uma área central da câmera, para os cantos da tela serem alcançáveis sem a
+mão sair do quadro.
 
 **macOS:** o sistema pede duas permissões para o aplicativo de onde o AutoDoc é
 aberto (Terminal, VS Code...): **Câmera**, que ele pede sozinho na primeira vez,
@@ -280,13 +282,31 @@ Cada sistema tem seu caminho para o que o PyAutoGUI não cobre:
 | Brilho | screen-brightness-control | DisplayServices | screen-brightness-control |
 | Rolagem horizontal | API do Windows (`MOUSEEVENTF_HWHEEL`) | PyAutoGUI | PyAutoGUI |
 
-O conjunto de gestos vem do
+A ideia vem do
 [Gesture-Controlled-Virtual-Mouse](https://github.com/Viral-Doshi/Gesture-Controlled-Virtual-Mouse),
 de Viral Doshi. O código não: o original é GPL-3.0, roda só no Windows e usa a
 API `mp.solutions` do MediaPipe, que não existe mais nas versões atuais — ele
 não instala num Python recente. Esta é uma reescrita sobre a API de tarefas
 (`HandLandmarker`), com o que depende do sistema isolado em
 `autodoc/gestos/sistema.py`.
+
+A primeira versão seguia os gestos do original e falhava na prática. O que foi
+corrigido, para quem for mexer nisto:
+
+- **Mão trocada.** A imagem era espelhada *antes* da detecção, e o MediaPipe
+  inverte o rótulo direita/esquerda numa imagem espelhada: a mão direita virava
+  a secundária, que não move o cursor. Agora detecta na imagem crua e espelha
+  só os pontos.
+- **Pinça em fração do quadro.** Longe da câmera, a mão aberta inteira cabia no
+  limiar e virava pinça; perto, a pinça nunca fechava. Agora tudo é medido em
+  palmas, com histerese para o traço não picotar.
+- **Dedos medidos pela altura.** Inclinar a mão bastava para errar. Agora o dedo
+  está aberto se a ponta está mais longe do pulso que a junta do meio.
+- **Movimento lento descartado.** O cursor andava pelo deslocamento entre dois
+  quadros e ignorava os pequenos — e num movimento lento todos são pequenos.
+  Agora a posição é absoluta, suavizada por um filtro One Euro.
+- **Arrasto e clique duplo no macOS.** O PyAutoGUI move sem marcar o botão como
+  apertado e manda todo clique como primeiro clique; o sistema ignorava os dois.
 
 ## Estrutura do Projeto
 
@@ -366,6 +386,7 @@ Além do escopo original da proposta, esta base inclui:
 - **Modo demonstração** em todas as telas, para apresentar o sistema sem instalá-lo.
 - **Detecção de sistema operacional** na landing, oferecendo o download correspondente.
 - **Controle do mouse por gestos**, pela webcam, no Windows, no macOS e no Linux — mover, clicar, arrastar, rolar, volume e brilho. Opcional, com dependências à parte.
+- **Quadro de desenho por gestos**, para treinar e calibrar os gestos sem entregar o mouse do sistema a eles.
 
 ## O que ainda não está pronto
 
@@ -397,11 +418,12 @@ continuá-lo:
   o que é imediato para as centenas de documentos que uma pessoa acumula. Para
   dezenas de milhares o texto completo na memória passaria a incomodar, e aí
   valeria guardar o texto fora da ficha.
-- **Controle por gestos fora do macOS.** No Mac ele foi verificado com as
-  bibliotecas reais — detecção numa foto, leitura e escrita de volume e brilho —,
-  mas não com a webcam movendo o mouse. Windows e Linux estão cobertos por
-  testes com o sistema simulado, não numa máquina de verdade. Os limiares dos
-  gestos são os do projeto original e ainda não foram calibrados.
+- **Controle por gestos.** No Mac foi verificado com as bibliotecas reais —
+  detecção numa foto, desenho do quadro, leitura e escrita de volume e brilho —,
+  mas não com a webcam ao vivo. Windows e Linux estão cobertos por testes com o
+  sistema simulado, não numa máquina de verdade. Os limiares da pinça
+  (`PINCA_FECHA`, `PINCA_ABRE`) e a área da câmera (`AREA`) são estimativas a
+  calibrar no quadro de desenho, que mostra as medidas ao vivo.
 - **Data por rótulo em texto muito corrido.** A distância entre o rótulo e a data
   é medida depois de juntar os espaços, então um rótulo seguido de muitas
   palavras ainda pode alcançar uma data que não é dele.
