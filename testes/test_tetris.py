@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 import unittest
 
@@ -371,6 +372,106 @@ class TestFimEPausa(unittest.TestCase):
         jogo.pontos, jogo.situacao = 900, "fim"
         jogo.recomecar()
         self.assertEqual((jogo.pontos, jogo.situacao, jogo.nivel), (0, "jogando", 1))
+
+
+class TestGuardar(unittest.TestCase):
+    def test_primeira_vez_traz_a_proxima_da_fila(self):
+        jogo = Jogo(semente=2)
+        atual, proxima = jogo.peca.tipo, jogo.saco.espiar(1)[0]
+        self.assertTrue(jogo.guardar())
+        self.assertEqual((jogo.guardada, jogo.peca.tipo), (atual, proxima))
+        self.assertEqual(tipos_dos_eventos(jogo), ["guardou"])
+
+    def test_uma_vez_por_peca(self):
+        jogo = Jogo(semente=2)
+        jogo.guardar()
+        self.assertFalse(jogo.guardar())
+        jogo.despencar()
+        self.assertTrue(jogo.pode_guardar)
+
+    def test_depois_troca_com_a_guardada(self):
+        jogo = Jogo(semente=2)
+        primeira = jogo.peca.tipo
+        jogo.guardar()
+        jogo.despencar()
+        segunda = jogo.peca.tipo
+        jogo.guardar()
+        self.assertEqual((jogo.peca.tipo, jogo.guardada), (primeira, segunda))
+        self.assertEqual((jogo.peca.rotacao, jogo.peca.linha), (0, 1))  # volta como nasceu
+
+    def test_nao_guarda_pausado(self):
+        jogo = Jogo(semente=2)
+        jogo.pausar(True)
+        self.assertFalse(jogo.guardar())
+
+
+class TestEstado(unittest.TestCase):
+    def test_sombra_e_onde_a_peca_cairia(self):
+        jogo = jogo_com(Peca("O", linha=2, coluna=3), "....##....")
+        self.assertEqual(jogo.sombra(), Peca("O", linha=19, coluna=3))  # em cima do bloco da linha 21
+
+    def test_retrato_na_numeracao_da_tela(self):
+        jogo = jogo_com(Peca("O", linha=2, coluna=3), "#.........")
+        estado = jogo.estado()
+        self.assertEqual(len(estado["tabuleiro"]), 20)
+        self.assertEqual(estado["tabuleiro"][-1], "Z.........")
+        self.assertEqual(estado["peca"], {"tipo": "O", "celulas": [[0, 4], [0, 5], [1, 4], [1, 5]]})
+        self.assertEqual(estado["sombra"], [[18, 4], [18, 5], [19, 4], [19, 5]])
+        self.assertEqual(len(estado["proximas"]), 3)
+        self.assertEqual(
+            {chave: estado[chave] for chave in ("guardada", "pode_guardar", "pontos", "nivel", "linhas", "situacao")},
+            {"guardada": None, "pode_guardar": True, "pontos": 0, "nivel": 1, "linhas": 0, "situacao": "jogando"},
+        )
+
+    def test_retrato_vira_json(self):
+        jogo = Jogo(semente=4)
+        jogo.despencar()
+        self.assertEqual(json.loads(json.dumps(jogo.estado())), jogo.estado())
+
+    def test_fila_mostrada_e_a_que_vem(self):
+        jogo = Jogo(semente=5)
+        proximas = jogo.estado()["proximas"]
+        for tipo in proximas:
+            jogo.despencar()
+            self.assertEqual(jogo.peca.tipo, tipo)
+
+
+class TestPartidaSimulada(unittest.TestCase):
+    """Um jogador bobo, mas honesto: cada peca vai para a coluna menos alta."""
+
+    def jogar(self, semente: int, pecas: int = 300) -> Jogo:
+        jogo = Jogo(semente=semente)
+        agora = 0.0
+        for _ in range(pecas):
+            if jogo.situacao == "fim":
+                break
+            alturas = [next((l for l in range(22) if jogo.tabuleiro.celulas[l][c]), 22) for c in range(10)]
+            alvo = alturas.index(max(alturas))
+            for _ in range(10):
+                coluna = min(c for _, c in jogo.peca.celulas)
+                if coluna == alvo or not jogo.mover(1 if alvo > coluna else -1):
+                    break
+            jogo.despencar()
+            agora += 0.5
+            jogo.atualizar(agora)
+            self.verificar(jogo)
+        return jogo
+
+    def verificar(self, jogo: Jogo) -> None:
+        """Invariantes que nenhuma jogada pode quebrar."""
+        estado = jogo.estado()
+        self.assertEqual(len(estado["tabuleiro"]), 20)
+        self.assertTrue(all(len(linha) == 10 for linha in estado["tabuleiro"]))
+        self.assertFalse(any(set(linha) <= set(TIPOS) for linha in estado["tabuleiro"]))  # nenhuma completa sobra
+        if jogo.situacao != "fim":
+            self.assertTrue(jogo.tabuleiro.cabe(jogo.peca))
+        self.assertEqual(jogo.nivel, 1 + jogo.linhas // 10)
+
+    def test_partidas_inteiras(self):
+        for semente in range(5):
+            jogo = self.jogar(semente)
+            self.assertEqual(jogo.situacao, "fim")  # o jogador bobo sempre perde, mas perde jogando
+            self.assertGreater(jogo.pontos, 0)
 
 
 if __name__ == "__main__":

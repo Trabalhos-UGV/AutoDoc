@@ -206,7 +206,11 @@ class Jogo:
     quanto para o teclado; quem os chama nao precisa saber de regra nenhuma.
     O que acontece de notavel vira um evento em `eventos`, que a tela recolhe
     com `tirar_eventos()` para animar — piscar a linha, sacudir no despencar.
+    O resto ela le de `estado()`.
     """
+
+    # Quantas pecas da fila a tela mostra.
+    FILA_VISIVEL = 3
 
     def __init__(self, semente: int | None = None) -> None:
         self._semente = semente
@@ -220,6 +224,8 @@ class Jogo:
         self.nivel = 1
         self.situacao = "jogando"
         self.descendo_rapido = False
+        self.guardada: str | None = None
+        self.pode_guardar = True
         self.eventos: list[dict] = []
         self._agora: float | None = None
         self._queda = 0.0
@@ -249,6 +255,21 @@ class Jogo:
         self.eventos.append({"tipo": "despencou", "linhas": descidas})
         self._travar()
 
+    def guardar(self) -> bool:
+        """Troca a peca atual pela guardada — uma vez so por peca.
+
+        Sem o limite, guardar e trazer de volta sem parar seguraria a peca no
+        alto para sempre.
+        """
+        if not self._jogando() or not self.pode_guardar:
+            return False
+        # Na primeira vez nao ha o que trazer de volta: vem a proxima da fila.
+        trazida, self.guardada = self.guardada, self.peca.tipo
+        self._nascer(trazida)
+        self.pode_guardar = False
+        self.eventos.append({"tipo": "guardou", "peca": self.guardada})
+        return True
+
     def descer_rapido(self, ligado: bool) -> None:
         self.descendo_rapido = ligado
 
@@ -257,6 +278,37 @@ class Jogo:
             return
         self.situacao = "pausado" if ligado else "jogando"
         self.eventos.append({"tipo": self.situacao})
+
+    def sombra(self) -> Peca:
+        """Onde a peca cairia se despencasse agora."""
+        peca = self.peca
+        while self.tabuleiro.cabe(peca.movida(1)):
+            peca = peca.movida(1)
+        return peca
+
+    def estado(self) -> dict:
+        """O retrato da partida para a tela, so com tipos que o JSON aceita.
+
+        As linhas vem na numeracao da tela: 0 e a primeira a vista, e as duas
+        escondidas ficam negativas. O tabuleiro vai como texto, uma string por
+        linha, com "." no vazio e a letra da peca no ocupado — legivel num log.
+        """
+        return {
+            "largura": LARGURA,
+            "altura": ALTURA,
+            "tabuleiro": [
+                "".join(celula or "." for celula in linha) for linha in self.tabuleiro.celulas[ESCONDIDAS:]
+            ],
+            "peca": {"tipo": self.peca.tipo, "celulas": _na_tela(self.peca.celulas)},
+            "sombra": _na_tela(self.sombra().celulas),
+            "proximas": self.saco.espiar(self.FILA_VISIVEL),
+            "guardada": self.guardada,
+            "pode_guardar": self.pode_guardar,
+            "pontos": self.pontos,
+            "nivel": self.nivel,
+            "linhas": self.linhas,
+            "situacao": self.situacao,
+        }
 
     def tirar_eventos(self) -> list[dict]:
         eventos, self.eventos = self.eventos, []
@@ -296,13 +348,13 @@ class Jogo:
     def _jogando(self) -> bool:
         return self.situacao == "jogando"
 
-    def _nascer(self) -> None:
+    def _nascer(self, tipo: str | None = None) -> None:
         """A proxima peca, centralizada nas linhas escondidas.
 
         Desce uma linha logo ao nascer, se der, como manda o Tetris oficial:
         assim a peca ja aparece na beirada de cima do campo.
         """
-        tipo = self.saco.tirar()
+        tipo = tipo or self.saco.tirar()
         peca = Peca(tipo, coluna=(LARGURA - FORMAS[tipo][0]) // 2)
         if not self.tabuleiro.cabe(peca):
             self._acabar()
@@ -353,6 +405,7 @@ class Jogo:
                 self.nivel = nivel
                 self.eventos.append({"tipo": "subiu_nivel", "nivel": nivel})
 
+        self.pode_guardar = True
         # Travar inteira nas linhas escondidas tambem acaba o jogo.
         if all(linha < ESCONDIDAS for linha, _ in peca.celulas):
             self._acabar()
@@ -363,3 +416,7 @@ class Jogo:
     def _acabar(self) -> None:
         self.situacao = "fim"
         self.eventos.append({"tipo": "fim", "pontos": self.pontos})
+
+
+def _na_tela(celulas) -> list[list[int]]:
+    return [[linha - ESCONDIDAS, coluna] for linha, coluna in celulas]
