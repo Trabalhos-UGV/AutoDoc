@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import random
 import unittest
 
 from autodoc.gestos import tetris
-from autodoc.gestos.tetris import ROTACOES, TIPOS, Peca, Tabuleiro, kicks
+from autodoc.gestos.tetris import ROTACOES, TIPOS, Jogo, Peca, Saco, Tabuleiro, intervalo_de_queda, kicks
 
 
 def desenho(celulas) -> list[str]:
@@ -139,6 +140,237 @@ class TestTabuleiro(unittest.TestCase):
         tabuleiro = Tabuleiro()
         tabuleiro.fixar(Peca("I", rotacao=1, linha=-2, coluna=0))
         self.assertEqual(sum(c is not None for linha in tabuleiro.celulas for c in linha), 2)
+
+
+def jogo_com(peca: Peca, *desenhadas: str) -> Jogo:
+    """Uma partida com a peca e o fundo do tabuleiro escolhidos a dedo."""
+    jogo = Jogo(semente=1)
+    jogo.tabuleiro = montar_tabuleiro(*desenhadas)
+    jogo.peca = peca
+    jogo._mais_baixa = peca.linha
+    jogo.tirar_eventos()
+    return jogo
+
+
+def avancar(jogo: Jogo, ate: float, desde: float = 0.0, quadros_por_segundo: int = 60) -> None:
+    """O relogio andando como no jogo de verdade: um quadro de cada vez."""
+    quadros = round((ate - desde) * quadros_por_segundo)
+    for quadro in range(quadros + 1):
+        jogo.atualizar(desde + quadro / quadros_por_segundo)
+
+
+def tipos_dos_eventos(jogo: Jogo) -> list[str]:
+    return [evento["tipo"] for evento in jogo.tirar_eventos()]
+
+
+class TestSorteio(unittest.TestCase):
+    def test_cada_saco_tem_as_sete(self):
+        saco = Saco(random.Random(3))
+        for _ in range(3):
+            self.assertEqual(sorted(saco.tirar() for _ in range(7)), sorted(TIPOS))
+
+    def test_espiar_nao_tira(self):
+        saco = Saco(random.Random(3))
+        proximas = saco.espiar(10)
+        self.assertEqual([saco.tirar() for _ in range(10)], proximas)
+
+    def test_mesma_semente_mesma_partida(self):
+        self.assertEqual(Jogo(semente=7).saco.espiar(14), Jogo(semente=7).saco.espiar(14))
+
+
+class TestGravidade(unittest.TestCase):
+    def test_curva(self):
+        self.assertAlmostEqual(intervalo_de_queda(1), 1.25)
+        self.assertLess(intervalo_de_queda(5), intervalo_de_queda(4))
+        self.assertEqual(intervalo_de_queda(40), tetris.QUEDA_MINIMA)
+
+    def test_peca_nasce_centralizada_aparecendo_no_topo(self):
+        jogo = Jogo(semente=1)
+        jogo.recomecar()
+        largura = tetris.FORMAS[jogo.peca.tipo][0]
+        self.assertEqual(jogo.peca.coluna, (10 - largura) // 2)
+        self.assertEqual(jogo.peca.linha, 1)
+
+    def test_desce_uma_linha_por_intervalo(self):
+        jogo = jogo_com(Peca("T", linha=5, coluna=3))
+        avancar(jogo, 1.2)
+        self.assertEqual(jogo.peca.linha, 5)
+        avancar(jogo, 1.3, desde=1.2)
+        self.assertEqual(jogo.peca.linha, 6)
+        avancar(jogo, 3.8, desde=1.3)
+        self.assertEqual(jogo.peca.linha, 8)
+
+    def test_janela_travada_nao_faz_a_peca_despencar(self):
+        jogo = jogo_com(Peca("T", linha=5, coluna=3))
+        jogo.nivel = 10  # 0,08 s por linha
+        jogo.atualizar(0.0)
+        jogo.atualizar(30.0)
+        self.assertLessEqual(jogo.peca.linha, 5 + int(tetris.PASSO_MAXIMO / jogo.intervalo()))
+
+    def test_descida_rapida_conta_ponto(self):
+        jogo = jogo_com(Peca("T", linha=5, coluna=3))
+        jogo.descer_rapido(True)
+        avancar(jogo, 0.25)  # 0,0625 s por linha
+        self.assertEqual(jogo.peca.linha, 9)
+        self.assertEqual(jogo.pontos, 4)
+        jogo.descer_rapido(False)
+        self.assertAlmostEqual(jogo.intervalo(), 1.25)
+
+
+class TestTrava(unittest.TestCase):
+    def no_chao(self):
+        jogo = jogo_com(Peca("O", linha=20, coluna=3))
+        jogo.atualizar(0.0)
+        return jogo
+
+    def test_trava_depois_do_atraso(self):
+        jogo = self.no_chao()
+        avancar(jogo, 0.45)
+        self.assertEqual(tipos_dos_eventos(jogo), [])
+        avancar(jogo, 0.55, desde=0.45)
+        self.assertEqual(tipos_dos_eventos(jogo), ["travou"])
+        self.assertEqual(jogo.tabuleiro.celulas[21][4], "O")
+
+    def test_mover_no_chao_reinicia_a_espera(self):
+        jogo = self.no_chao()
+        avancar(jogo, 0.4)
+        jogo.mover(1)
+        avancar(jogo, 0.8, desde=0.4)
+        self.assertEqual(tipos_dos_eventos(jogo), [])
+
+    def test_espera_nao_reinicia_para_sempre(self):
+        jogo = self.no_chao()
+        for i in range(tetris.MOVIMENTOS_NA_TRAVA + 1):
+            jogo.mover(1 if i % 2 else -1)
+            avancar(jogo, 0.3 * (i + 1), desde=0.3 * i)
+        self.assertIn("travou", tipos_dos_eventos(jogo))
+
+    def test_chegar_mais_baixo_devolve_os_movimentos(self):
+        jogo = jogo_com(Peca("O", linha=10, coluna=3))
+        jogo._movimentos_na_trava = tetris.MOVIMENTOS_NA_TRAVA
+        jogo._descer()
+        self.assertEqual(jogo._movimentos_na_trava, 0)
+
+    def test_peca_que_deixa_o_chao_zera_a_espera(self):
+        jogo = jogo_com(Peca("O", linha=19, coluna=-1), "##........")  # apoiada no degrau
+        avancar(jogo, 0.3)
+        self.assertGreater(jogo._trava, 0)
+        jogo.mover(2)  # saiu de cima do degrau: pode cair de novo
+        avancar(jogo, 0.32, desde=0.3)
+        self.assertEqual(jogo._trava, 0.0)
+
+
+class TestComandos(unittest.TestCase):
+    def test_parede_barra_o_movimento(self):
+        jogo = jogo_com(Peca("O", linha=5, coluna=-1))
+        self.assertFalse(jogo.mover(-1))
+        self.assertTrue(jogo.mover(1))
+
+    def test_kick_tira_a_peca_da_parede(self):
+        # T apontando para a direita, encostada na parede esquerda: girar a
+        # deixaria uma coluna para fora, e o segundo kick (x+1) resolve.
+        jogo = jogo_com(Peca("T", rotacao=1, linha=5, coluna=-1))
+        self.assertTrue(jogo.girar())
+        self.assertEqual((jogo.peca.rotacao, jogo.peca.coluna), (2, 0))
+        self.assertEqual(tipos_dos_eventos(jogo), ["girou"])
+
+    def test_vale_a_primeira_tentativa_que_cabe(self):
+        jogo = jogo_com(Peca("T", linha=5, coluna=3))
+        quarta = list(jogo.peca.tentativas_de_giro())[3]
+        jogo.tabuleiro.cabe = lambda peca: peca == quarta or peca == jogo.peca
+        self.assertTrue(jogo.girar())
+        self.assertEqual(jogo.peca, quarta)
+
+    def test_giro_impossivel(self):
+        jogo = jogo_com(Peca("I", linha=5, coluna=3))
+        jogo.tabuleiro.cabe = lambda peca: peca.rotacao == 0
+        self.assertFalse(jogo.girar())
+        self.assertEqual(tipos_dos_eventos(jogo), [])
+
+    def test_despencar(self):
+        jogo = jogo_com(Peca("O", linha=2, coluna=3))
+        jogo.despencar()
+        self.assertEqual(jogo.pontos, 2 * 18)
+        self.assertEqual(tipos_dos_eventos(jogo), ["despencou", "travou"])
+        self.assertEqual(jogo.tabuleiro.celulas[21][4], "O")
+        self.assertEqual(jogo.peca.linha, 1)  # a proxima ja nasceu
+
+    def test_tirar_eventos_esvazia(self):
+        jogo = jogo_com(Peca("O", linha=2, coluna=3))
+        jogo.girar()
+        self.assertEqual(len(jogo.tirar_eventos()), 1)
+        self.assertEqual(jogo.tirar_eventos(), [])
+
+
+class TestPontos(unittest.TestCase):
+    def test_tabela_por_linhas(self):
+        for quantas, pontos in ((1, 100), (2, 300), (3, 500), (4, 800)):
+            fundo = ["#########."] * quantas
+            jogo = jogo_com(Peca("I", rotacao=1, linha=18, coluna=7), *fundo)
+            jogo.despencar()
+            self.assertEqual(jogo.pontos, pontos, quantas)  # a I ja estava no chao
+            self.assertEqual(jogo.linhas, quantas)
+
+    def test_pontos_multiplicam_pelo_nivel(self):
+        jogo = jogo_com(Peca("I", rotacao=1, linha=18, coluna=7), *["#########."] * 4)
+        jogo.nivel = 3
+        jogo.despencar()
+        self.assertEqual(jogo.pontos, 2400)
+
+    def test_eventos_das_linhas_na_numeracao_da_tela(self):
+        jogo = jogo_com(Peca("I", rotacao=1, linha=18, coluna=7), "#########.", "#########.")
+        jogo.despencar()
+        linhas = [e for e in jogo.tirar_eventos() if e["tipo"] == "linhas"]
+        self.assertEqual(linhas, [{"tipo": "linhas", "linhas": [18, 19]}])
+
+    def test_sobe_de_nivel_a_cada_dez_linhas(self):
+        jogo = jogo_com(Peca("I", rotacao=1, linha=18, coluna=7), "#########.")
+        jogo.linhas = 9
+        jogo.despencar()
+        self.assertEqual(jogo.nivel, 2)
+        self.assertIn({"tipo": "subiu_nivel", "nivel": 2}, jogo.tirar_eventos())
+
+
+class TestFimEPausa(unittest.TestCase):
+    def test_fim_quando_a_peca_nova_nao_cabe(self):
+        jogo = jogo_com(Peca("O", linha=10, coluna=3))
+        for linha in range(4):
+            # Uma falha na ponta, senao a linha estaria completa e sumiria.
+            jogo.tabuleiro.celulas[linha] = ["Z"] * 9 + [None]
+        jogo.despencar()
+        self.assertEqual(jogo.situacao, "fim")
+        self.assertEqual(tipos_dos_eventos(jogo)[-1], "fim")
+
+    def test_fim_quando_trava_toda_escondida(self):
+        jogo = jogo_com(Peca("O", linha=0, coluna=0), *[".##......."] * 20)
+        jogo.despencar()
+        self.assertEqual(jogo.situacao, "fim")
+
+    def test_sem_comandos_depois_do_fim(self):
+        jogo = jogo_com(Peca("O", linha=5, coluna=3))
+        jogo.situacao = "fim"
+        self.assertFalse(jogo.mover(1))
+        self.assertFalse(jogo.girar())
+        jogo.despencar()
+        jogo.pausar(True)
+        self.assertEqual((jogo.situacao, jogo.pontos), ("fim", 0))
+
+    def test_pausa_congela_o_tempo(self):
+        jogo = jogo_com(Peca("T", linha=5, coluna=3))
+        jogo.atualizar(0.0)
+        jogo.pausar(True)
+        jogo.pausar(True)
+        for segundo in range(1, 10):
+            jogo.atualizar(segundo)
+        jogo.pausar(False)
+        self.assertEqual(jogo.peca.linha, 5)
+        self.assertEqual(tipos_dos_eventos(jogo), ["pausado", "jogando"])
+
+    def test_recomecar_zera(self):
+        jogo = jogo_com(Peca("O", linha=5, coluna=3))
+        jogo.pontos, jogo.situacao = 900, "fim"
+        jogo.recomecar()
+        self.assertEqual((jogo.pontos, jogo.situacao, jogo.nivel), (0, "jogando", 1))
 
 
 if __name__ == "__main__":

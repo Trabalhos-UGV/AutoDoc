@@ -17,6 +17,7 @@ e feita uma vez, em `_kicks()`.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, replace
 
 # Cada peca na rotacao de nascimento, dentro da sua caixa (3x3, ou 4x4 para I e O).
@@ -149,3 +150,216 @@ class Tabuleiro:
             del self.celulas[i]
             self.celulas.insert(0, [None] * self.largura)
         return completas
+
+
+# Gravidade: a curva das diretrizes oficiais, em segundos por linha, mas 25%
+# mais lenta. O gesto tem atraso — a mao demora mais que um dedo no teclado —,
+# e quem nunca jogou assim precisa de folga nos primeiros niveis.
+LENTIDAO = 1.25
+QUEDA_MINIMA = 0.05
+DESCIDA_RAPIDA = 20  # quantas vezes mais rapido cai com a descida rapida ligada
+
+# A peca encostada no chao espera isto antes de travar, e cada movimento
+# reinicia a espera — ate este limite, para ninguem empurrar a peca para sempre.
+ATRASO_DA_TRAVA = 0.5
+MOVIMENTOS_NA_TRAVA = 15
+
+PONTOS_POR_LINHAS = {1: 100, 2: 300, 3: 500, 4: 800}
+LINHAS_POR_NIVEL = 10
+
+# Maior passo de tempo aceito num quadro. Sem isto, uma janela que travou um
+# segundo faria a peca despencar de uma vez quando voltasse.
+PASSO_MAXIMO = 0.25
+
+
+def intervalo_de_queda(nivel: int) -> float:
+    return max((0.8 - (nivel - 1) * 0.007) ** (nivel - 1) * LENTIDAO, QUEDA_MINIMA)
+
+
+class Saco:
+    """Sorteio em "saco de 7": as sete pecas embaralhadas, uma de cada, e de novo.
+
+    Sorteio puro deixa passar vinte pecas sem uma I; com o saco, a maior espera
+    possivel por qualquer peca e de 12. E o que o Tetris oficial faz.
+    """
+
+    def __init__(self, sorteio: random.Random) -> None:
+        self._sorteio = sorteio
+        self._fila: list[str] = []
+
+    def espiar(self, quantas: int) -> list[str]:
+        while len(self._fila) < quantas:
+            saco = list(TIPOS)
+            self._sorteio.shuffle(saco)
+            self._fila.extend(saco)
+        return self._fila[:quantas]
+
+    def tirar(self) -> str:
+        self.espiar(1)
+        return self._fila.pop(0)
+
+
+class Jogo:
+    """Uma partida. O tempo vem sempre de fora, por `atualizar(agora)`.
+
+    Os comandos (`mover`, `girar`, `despencar`...) valem tanto para o gesto
+    quanto para o teclado; quem os chama nao precisa saber de regra nenhuma.
+    O que acontece de notavel vira um evento em `eventos`, que a tela recolhe
+    com `tirar_eventos()` para animar — piscar a linha, sacudir no despencar.
+    """
+
+    def __init__(self, semente: int | None = None) -> None:
+        self._semente = semente
+        self.recomecar()
+
+    def recomecar(self) -> None:
+        self.tabuleiro = Tabuleiro()
+        self.saco = Saco(random.Random(self._semente))
+        self.pontos = 0
+        self.linhas = 0
+        self.nivel = 1
+        self.situacao = "jogando"
+        self.descendo_rapido = False
+        self.eventos: list[dict] = []
+        self._agora: float | None = None
+        self._queda = 0.0
+        self._nascer()
+
+    # ------------------------------------------------------------ comandos
+
+    def mover(self, colunas: int) -> bool:
+        return self._jogando() and self._tentar(self.peca.movida(colunas=colunas))
+
+    def girar(self, sentido: int = 1) -> bool:
+        if not self._jogando():
+            return False
+        for tentativa in self.peca.tentativas_de_giro(sentido):
+            if self._tentar(tentativa):
+                self.eventos.append({"tipo": "girou"})
+                return True
+        return False
+
+    def despencar(self) -> None:
+        if not self._jogando():
+            return
+        descidas = 0
+        while self._descer():
+            descidas += 1
+        self.pontos += 2 * descidas
+        self.eventos.append({"tipo": "despencou", "linhas": descidas})
+        self._travar()
+
+    def descer_rapido(self, ligado: bool) -> None:
+        self.descendo_rapido = ligado
+
+    def pausar(self, ligado: bool) -> None:
+        if self.situacao == "fim" or (self.situacao == "pausado") == ligado:
+            return
+        self.situacao = "pausado" if ligado else "jogando"
+        self.eventos.append({"tipo": self.situacao})
+
+    def tirar_eventos(self) -> list[dict]:
+        eventos, self.eventos = self.eventos, []
+        return eventos
+
+    # ------------------------------------------------------------ tempo
+
+    def intervalo(self) -> float:
+        """Segundos para a peca descer uma linha, agora."""
+        base = intervalo_de_queda(self.nivel)
+        return base / DESCIDA_RAPIDA if self.descendo_rapido else base
+
+    def atualizar(self, agora: float) -> None:
+        passo = 0.0 if self._agora is None else min(agora - self._agora, PASSO_MAXIMO)
+        self._agora = agora
+        if not self._jogando():
+            return
+
+        self._queda += passo
+        while self._queda >= self.intervalo():
+            self._queda -= self.intervalo()
+            if not self._descer():
+                self._queda = 0.0
+                break
+            if self.descendo_rapido:
+                self.pontos += 1
+
+        if self._no_chao():
+            self._trava += passo
+            if self._trava >= ATRASO_DA_TRAVA:
+                self._travar()
+        else:
+            self._trava = 0.0
+
+    # ------------------------------------------------------------ por dentro
+
+    def _jogando(self) -> bool:
+        return self.situacao == "jogando"
+
+    def _nascer(self) -> None:
+        """A proxima peca, centralizada nas linhas escondidas.
+
+        Desce uma linha logo ao nascer, se der, como manda o Tetris oficial:
+        assim a peca ja aparece na beirada de cima do campo.
+        """
+        tipo = self.saco.tirar()
+        peca = Peca(tipo, coluna=(LARGURA - FORMAS[tipo][0]) // 2)
+        if not self.tabuleiro.cabe(peca):
+            self._acabar()
+            return
+        if self.tabuleiro.cabe(peca.movida(1)):
+            peca = peca.movida(1)
+        self.peca = peca
+        self._trava = 0.0
+        self._movimentos_na_trava = 0
+        self._mais_baixa = peca.linha
+
+    def _no_chao(self) -> bool:
+        return not self.tabuleiro.cabe(self.peca.movida(1))
+
+    def _tentar(self, nova: Peca) -> bool:
+        """Poe a peca na posicao nova se couber, reiniciando a espera da trava."""
+        if not self.tabuleiro.cabe(nova):
+            return False
+        no_chao = self._no_chao()
+        self.peca = nova
+        if no_chao and self._movimentos_na_trava < MOVIMENTOS_NA_TRAVA:
+            self._movimentos_na_trava += 1
+            self._trava = 0.0
+        return True
+
+    def _descer(self) -> bool:
+        nova = self.peca.movida(1)
+        if not self.tabuleiro.cabe(nova):
+            return False
+        self.peca = nova
+        # Chegar mais baixo que nunca devolve os movimentos da trava.
+        if nova.linha > self._mais_baixa:
+            self._mais_baixa = nova.linha
+            self._movimentos_na_trava = 0
+        return True
+
+    def _travar(self) -> None:
+        peca = self.peca
+        completas = self.tabuleiro.fixar(peca)
+        self.eventos.append({"tipo": "travou", "celulas": [[l - ESCONDIDAS, c] for l, c in peca.celulas]})
+
+        if completas:
+            self.pontos += PONTOS_POR_LINHAS[len(completas)] * self.nivel
+            self.linhas += len(completas)
+            self.eventos.append({"tipo": "linhas", "linhas": [l - ESCONDIDAS for l in completas]})
+            nivel = 1 + self.linhas // LINHAS_POR_NIVEL
+            if nivel > self.nivel:
+                self.nivel = nivel
+                self.eventos.append({"tipo": "subiu_nivel", "nivel": nivel})
+
+        # Travar inteira nas linhas escondidas tambem acaba o jogo.
+        if all(linha < ESCONDIDAS for linha, _ in peca.celulas):
+            self._acabar()
+            return
+        self._queda = 0.0
+        self._nascer()
+
+    def _acabar(self) -> None:
+        self.situacao = "fim"
+        self.eventos.append({"tipo": "fim", "pontos": self.pontos})
