@@ -108,3 +108,44 @@ class Peca:
         girada = self.girada(sentido)
         for linhas, colunas in kicks(self.tipo, self.rotacao, girada.rotacao):
             yield girada.movida(linhas, colunas)
+
+
+# Tamanho oficial: 10 colunas e 20 linhas a vista, mais 2 escondidas em cima,
+# onde a peca nasce. Sem elas a peca nasceria ja dentro do campo, e uma pilha
+# alta acabaria o jogo antes da hora.
+LARGURA = 10
+ALTURA = 20
+ESCONDIDAS = 2
+
+
+class Tabuleiro:
+    """As celulas ja fixadas. Vazio e `None`; ocupado guarda o tipo da peca."""
+
+    def __init__(self, largura: int = LARGURA, altura: int = ALTURA + ESCONDIDAS) -> None:
+        self.largura = largura
+        self.altura = altura
+        self.celulas: list[list[str | None]] = [[None] * largura for _ in range(altura)]
+
+    def livre(self, linha: int, coluna: int) -> bool:
+        """Acima do tabuleiro conta como livre: um kick pode levantar a peca."""
+        if not 0 <= coluna < self.largura or linha >= self.altura:
+            return False
+        return linha < 0 or self.celulas[linha][coluna] is None
+
+    def cabe(self, peca: Peca) -> bool:
+        return all(self.livre(linha, coluna) for linha, coluna in peca.celulas)
+
+    def fixar(self, peca: Peca) -> list[int]:
+        """Grava a peca e apaga as linhas que ela completou. Devolve quais foram.
+
+        As linhas vem na numeracao de antes de apagar, de cima para baixo — e
+        o que a tela precisa para piscar o lugar certo.
+        """
+        for linha, coluna in peca.celulas:
+            if linha >= 0:
+                self.celulas[linha][coluna] = peca.tipo
+        completas = [i for i, linha in enumerate(self.celulas) if all(linha)]
+        for i in completas:
+            del self.celulas[i]
+            self.celulas.insert(0, [None] * self.largura)
+        return completas

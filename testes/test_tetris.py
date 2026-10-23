@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from autodoc.gestos import tetris
-from autodoc.gestos.tetris import ROTACOES, TIPOS, Peca, kicks
+from autodoc.gestos.tetris import ROTACOES, TIPOS, Peca, Tabuleiro, kicks
 
 
 def desenho(celulas) -> list[str]:
@@ -80,6 +80,65 @@ class TestKicks(unittest.TestCase):
     def test_celulas_somam_a_posicao(self):
         self.assertEqual(Peca("O", linha=3, coluna=4).celulas, ((3, 5), (3, 6), (4, 5), (4, 6)))
         self.assertEqual(Peca("O").movida(1, -1), Peca("O", linha=1, coluna=-1))
+
+
+def montar_tabuleiro(*desenhadas: str) -> Tabuleiro:
+    """Um tabuleiro com as linhas dadas embaixo; `#` e ocupado, `.` e livre."""
+    tabuleiro = Tabuleiro()
+    for deslocamento, texto in enumerate(reversed(desenhadas)):
+        linha = tabuleiro.altura - 1 - deslocamento
+        tabuleiro.celulas[linha] = [None if marca == "." else "Z" for marca in texto]
+    return tabuleiro
+
+
+def linhas_de_baixo(tabuleiro: Tabuleiro, quantas: int) -> list[str]:
+    return ["".join("." if c is None else "#" for c in linha) for linha in tabuleiro.celulas[-quantas:]]
+
+
+class TestTabuleiro(unittest.TestCase):
+    def test_tamanho_oficial_com_duas_linhas_escondidas(self):
+        tabuleiro = Tabuleiro()
+        self.assertEqual((tabuleiro.largura, tabuleiro.altura), (10, 22))
+
+    def test_paredes_chao_e_ceu(self):
+        tabuleiro = Tabuleiro()
+        self.assertFalse(tabuleiro.livre(5, -1))
+        self.assertFalse(tabuleiro.livre(5, 10))
+        self.assertFalse(tabuleiro.livre(22, 5))
+        self.assertTrue(tabuleiro.livre(-2, 5))  # acima: livre, para o kick poder levantar
+
+    def test_cabe(self):
+        tabuleiro = montar_tabuleiro("#.........")
+        self.assertTrue(tabuleiro.cabe(Peca("O", linha=19, coluna=0)))
+        self.assertFalse(tabuleiro.cabe(Peca("O", linha=20, coluna=-1)))
+        self.assertFalse(tabuleiro.cabe(Peca("O", linha=20, coluna=8)))
+
+    def test_fixar_sem_completar(self):
+        tabuleiro = Tabuleiro()
+        self.assertEqual(tabuleiro.fixar(Peca("O", linha=20, coluna=0)), [])
+        self.assertEqual(linhas_de_baixo(tabuleiro, 2), [".##.......", ".##......."])
+        self.assertEqual(tabuleiro.celulas[21][1], "O")
+
+    def test_linha_completa_some_e_o_resto_desce(self):
+        tabuleiro = montar_tabuleiro("#.........", "########..")
+        self.assertEqual(tabuleiro.fixar(Peca("O", linha=20, coluna=7)), [21])
+        self.assertEqual(linhas_de_baixo(tabuleiro, 2), ["..........", "#.......##"])
+
+    def test_quatro_linhas_de_uma_vez(self):
+        tabuleiro = montar_tabuleiro(*["#########."] * 4)
+        self.assertEqual(tabuleiro.fixar(Peca("I", rotacao=1, linha=18, coluna=7)), [18, 19, 20, 21])
+        self.assertEqual(linhas_de_baixo(tabuleiro, 4), [".........."] * 4)
+
+    def test_linhas_separadas(self):
+        tabuleiro = montar_tabuleiro("#########.", "#.#######.", "#########.")
+        self.assertEqual(tabuleiro.fixar(Peca("I", rotacao=1, linha=18, coluna=7)), [19, 21])
+        # Sobra a ponta da I nas duas linhas que nao completaram.
+        self.assertEqual(linhas_de_baixo(tabuleiro, 2), [".........#", "#.########"])
+
+    def test_celula_acima_do_tabuleiro_nao_e_gravada(self):
+        tabuleiro = Tabuleiro()
+        tabuleiro.fixar(Peca("I", rotacao=1, linha=-2, coluna=0))
+        self.assertEqual(sum(c is not None for linha in tabuleiro.celulas for c in linha), 2)
 
 
 if __name__ == "__main__":
