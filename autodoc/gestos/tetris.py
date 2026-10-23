@@ -270,6 +270,14 @@ class Jogo:
         self.eventos.append({"tipo": "guardou", "peca": self.guardada})
         return True
 
+    def descer(self) -> bool:
+        """Uma linha para baixo, valendo um ponto — a seta para baixo."""
+        if not self._jogando() or not self._descer():
+            return False
+        self.pontos += 1
+        self._queda = 0.0
+        return True
+
     def descer_rapido(self, ligado: bool) -> None:
         self.descendo_rapido = ligado
 
