@@ -233,4 +233,11 @@ class Comandos:
 
     def estado(self) -> dict:
         """O que a tela mostra sobre o controle, alem do jogo."""
-        return {"gesto": self.gesto.value, "alvo": self.alvo, "contagem": self.contagem()}
+        return {
+            "gesto": self.gesto.value,
+            "alvo": self.alvo,
+            "contagem": self.contagem(),
+            "descendo": self.jogo.descendo_rapido,
+            # A altura da palma que liga a descida rapida, para a tela marcar na camera.
+            "zona_descida": ZONA_DESCIDA,
+        }

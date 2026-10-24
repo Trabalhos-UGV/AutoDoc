@@ -13,6 +13,7 @@ from autodoc.gestos.comandos_tetris import (
     CONTAGEM_AO_VOLTAR,
     ESPERA_APOS_DESPENCAR,
     QUADROS_PUNHO,
+    ZONA_DESCIDA,
     ColunaDaMao,
     Comandos,
     coluna_da_peca,
@@ -260,9 +261,12 @@ class TestTeclado(Partida):
 class TestEstado(Partida):
     def test_estado_do_controle(self):
         self.preparar(Peca("O", linha=5, coluna=3))
-        self.assertEqual(self.comandos.estado(), {"gesto": "sem mao", "alvo": None, "contagem": None})
+        base = {"contagem": None, "descendo": False, "zona_descida": ZONA_DESCIDA}
+        self.assertEqual(self.comandos.estado(), {"gesto": "sem mao", "alvo": None, **base})
         self.quadros(Gesto.MOVER, mao(7))
-        self.assertEqual(self.comandos.estado(), {"gesto": "mover", "alvo": 7, "contagem": None})
+        self.assertEqual(self.comandos.estado(), {"gesto": "mover", "alvo": 7, **base})
+        self.quadros(Gesto.MOVER, mao(7, y=0.2))
+        self.assertTrue(self.comandos.estado()["descendo"])
 
 
 class TestComReconhecimentoDeVerdade(unittest.TestCase):
