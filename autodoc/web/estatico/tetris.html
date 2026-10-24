@@ -38,6 +38,7 @@
           <p>Câmera desligada.<br>Jogando pelo teclado.</p>
         </div>
       </div>
+      <button class="trocar" type="button" data-trocar hidden>trocar personagem</button>
     </section>
 
     <section class="ad-cartao bloco">
@@ -113,6 +114,15 @@
     </section>
   </aside>
 
+</div>
+
+<!-- ------------------------------------------------- escolha do personagem -->
+<div class="escolha" data-escolha role="dialog" aria-modal="true" aria-labelledby="escolha-titulo" hidden>
+  <div class="escolha__caixa">
+    <h1 class="escolha__titulo" id="escolha-titulo">Escolha seu personagem</h1>
+    <p class="escolha__texto">Ele cobre o seu rosto na câmera enquanto você joga.</p>
+    <div class="escolha__grade" data-escolha-grade></div>
+  </div>
 </div>
 
 <script type="module" src="js/tetris.js"></script>

@@ -153,6 +153,80 @@ body { overflow: hidden; }
   stroke-linejoin: round;
 }
 
+.trocar {
+  align-self: flex-start;
+  margin-top: -2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--ad-sans);
+  font-size: 12px;
+  color: var(--ad-fraco);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.trocar:hover { color: var(--ad-acento); }
+
+/* ----------------------------------------------- escolha do personagem */
+
+.escolha {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Fundo escuro solido, e sem desfoque nem animacao de entrada: com eles a
+     caixa chegou a ser desenhada meio transparente, com o jogo vazando por
+     tras dos personagens. */
+  background: rgba(12, 10, 7, 0.86);
+}
+
+.escolha__caixa {
+  width: min(720px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 26px 28px 28px;
+  border-radius: var(--ad-raio);
+  border: 1px solid var(--ad-borda-forte);
+  background: var(--ad-painel);
+  box-shadow: var(--ad-sombra);
+}
+
+.escolha__titulo { margin: 0; font-size: 22px; font-weight: 600; color: var(--ad-tinta-forte); }
+.escolha__texto { margin: 6px 0 20px; font-size: 13.5px; color: var(--ad-texto); }
+
+.escolha__grade {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.personagem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 6px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--ad-borda);
+  background: var(--ad-cartao);
+  color: var(--ad-texto);
+  font-family: var(--ad-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+.personagem img { width: 72px; height: 72px; }
+.personagem:hover { border-color: var(--ad-acento); background: var(--ad-barra); transform: translateY(-2px); }
+.personagem[aria-pressed='true'] { border-color: var(--ad-acento); color: var(--ad-tinta-forte); background: var(--ad-acento-fraco); }
+
+@media (max-width: 760px) {
+  .escolha__grade { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 /* ----------------------------------------------------------- comandos */
 
 .comandos {
@@ -397,6 +471,8 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .escolha,
+  .personagem:hover { animation: none; transform: none; }
   .campo__moldura.soco,
   .placar__valor.subiu,
   .aviso { animation: none; }

@@ -56,6 +56,9 @@ const el = {
   guardadaDica: document.querySelector('[data-guardada-dica]'),
   gestoAtual: document.querySelector('[data-gesto-atual]'),
   gestoNome: document.querySelector('[data-gesto-nome]'),
+  escolha: document.querySelector('[data-escolha]'),
+  escolhaGrade: document.querySelector('[data-escolha-grade]'),
+  trocar: document.querySelector('[data-trocar]'),
 };
 
 const NOMES_DOS_GESTOS = {
@@ -372,7 +375,46 @@ function atualizarPainel(retrato) {
     item.toggleAttribute('data-ativo', comCamera && item.dataset.gesto === gesto);
   }
 
+  el.trocar.hidden = !comCamera || retrato.escolhendo;
+  mostrarEscolha(retrato);
   avisar(retrato);
+}
+
+/* ------------------------------------------------- escolha do personagem */
+
+function mostrarEscolha(retrato) {
+  const abrindo = retrato.escolhendo && el.escolha.hidden;
+  el.escolha.hidden = !retrato.escolhendo;
+  if (!retrato.escolhendo) return;
+
+  if (!el.escolhaGrade.children.length) {
+    for (const personagem of retrato.personagens) {
+      const botao = document.createElement('button');
+      botao.type = 'button';
+      botao.className = 'personagem';
+      botao.dataset.nome = personagem.nome;
+      const imagem = document.createElement('img');
+      imagem.src = personagem.imagem;
+      imagem.alt = '';
+      botao.append(imagem, personagem.rotulo);
+      botao.addEventListener('click', () => escolher(personagem.nome));
+      el.escolhaGrade.append(botao);
+    }
+  }
+  for (const botao of el.escolhaGrade.children) {
+    botao.setAttribute('aria-pressed', String(botao.dataset.nome === retrato.personagem));
+  }
+  // Ao abrir, o foco vai para o personagem atual: Enter já escolhe, e o Tab
+  // anda pela grade.
+  if (abrindo) el.escolhaGrade.querySelector('[aria-pressed="true"]')?.focus();
+}
+
+function escolher(nome) {
+  fetch('api/personagem', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome }),
+  }).catch(() => {});
 }
 
 function avisar(retrato) {
@@ -490,6 +532,7 @@ function quadro(agora) {
 /* ------------------------------------------------------------ teclado */
 
 function teclar(evento) {
+  if (!el.escolha.hidden) return; // na escolha, as teclas são dos botões
   const tecla = evento.key.length === 1 ? evento.key.toLowerCase() : evento.key;
   if (!TECLAS.has(tecla)) return;
   evento.preventDefault();
@@ -516,6 +559,9 @@ async function iniciar() {
   receber(estadoDoServidor());
   requestAnimationFrame(quadro);
   document.addEventListener('keydown', teclar);
+  el.trocar.addEventListener('click', () => {
+    fetch('api/personagem/trocar', { method: 'POST', body: '{}' }).catch(() => {});
+  });
   // A fila e a guardada são redesenhadas quando a janela muda de tamanho.
   window.addEventListener('resize', () => {
     atualizarPainel.chave = null;
