@@ -47,18 +47,21 @@
           <span>Mão para os lados<small>a peça vai junto</small></span></li>
         <li data-gesto="pinca indicador"><span class="comandos__icone" aria-hidden="true">👌</span>
           <span>Polegar no indicador<small>gira a peça</small></span></li>
+        <li data-gesto="descer"><span class="comandos__icone" aria-hidden="true">👇</span>
+          <span>Baixe a mão<small>até a linha tracejada: desce mais rápido</small></span></li>
         <li data-gesto="punho"><span class="comandos__icone" aria-hidden="true">✊</span>
           <span>Feche a mão<small>a peça despenca</small></span></li>
         <li data-gesto="pinca medio"><span class="comandos__icone" aria-hidden="true">🤌</span>
-          <span>Polegar no médio<small>guarda a peça</small></span></li>
+          <span>Polegar no médio<small>guarda a peça; de novo, troca</small></span></li>
       </ul>
       <ul class="comandos comandos--teclas" data-comandos-teclas>
         <li><kbd>←</kbd><kbd>→</kbd><span>move</span></li>
-        <li><kbd>↑</kbd><span>gira</span></li>
+        <li><kbd>↑</kbd><kbd>Z</kbd><span>gira para um lado e para o outro</span></li>
         <li><kbd>↓</kbd><span>desce</span></li>
         <li><kbd class="largo">espaço</kbd><span>despenca</span></li>
-        <li><kbd>C</kbd><span>guarda</span></li>
+        <li><kbd>C</kbd><span>guarda; de novo, troca</span></li>
         <li><kbd>P</kbd><span>pausa</span></li>
+        <li><kbd>R</kbd><span>recomeça</span></li>
       </ul>
     </section>
   </aside>
@@ -101,6 +104,7 @@
     <section class="ad-cartao bloco">
       <h2 class="ad-rotulo">Guardada</h2>
       <canvas class="fila__peca guardada" data-guardada></canvas>
+      <p class="guardada__dica" data-guardada-dica></p>
     </section>
 
     <section class="ad-cartao bloco gesto" data-gesto-atual hidden>

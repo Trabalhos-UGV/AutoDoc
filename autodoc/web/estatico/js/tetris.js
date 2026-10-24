@@ -53,6 +53,7 @@ const el = {
   linhas: document.querySelector('[data-linhas]'),
   proximas: [...document.querySelectorAll('[data-proxima]')],
   guardada: document.querySelector('[data-guardada]'),
+  guardadaDica: document.querySelector('[data-guardada-dica]'),
   gestoAtual: document.querySelector('[data-gesto-atual]'),
   gestoNome: document.querySelector('[data-gesto-nome]'),
 };
@@ -63,6 +64,7 @@ const NOMES_DOS_GESTOS = {
   'pinca indicador': 'girando',
   'pinca medio': 'guardando',
   punho: 'despencando',
+  descer: 'descendo rápido',
 };
 
 let atual = null; // o último retrato recebido
@@ -254,6 +256,31 @@ function desenharMaos() {
   ctx.clearRect(0, 0, largura, altura);
   if (!atual.camera) return;
 
+  // A linha da descida rápida: daqui para baixo, a peça cai depressa.
+  const zona = atual.controle.zona_descida * altura;
+  if (atual.controle.descendo) {
+    ctx.fillStyle = 'rgba(240, 193, 42, 0.14)';
+    ctx.fillRect(0, zona, largura, altura - zona);
+  }
+  ctx.save();
+  ctx.setLineDash([6, 5]);
+  ctx.strokeStyle = 'rgba(240, 193, 42, 0.7)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, zona);
+  ctx.lineTo(largura, zona);
+  ctx.stroke();
+  ctx.restore();
+  // A etiqueta com fundo escuro: direto sobre a imagem da câmera não se lia.
+  const etiqueta = '↓ desce rápido';
+  ctx.font = '600 11px "Space Grotesk", sans-serif';
+  const larguraEtiqueta = ctx.measureText(etiqueta).width + 12;
+  ctx.fillStyle = 'rgba(12, 10, 7, 0.75)';
+  retangulo(ctx, 6, zona + 4, larguraEtiqueta, 18, 5);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(240, 193, 42, 0.95)';
+  ctx.fillText(etiqueta, 12, zona + 17);
+
   for (const mao of atual.maos) {
     const pontos = mao.pontos.map(([x, y]) => [x * largura, y * altura]);
     ctx.strokeStyle = 'rgba(245, 242, 233, 0.7)';
@@ -312,6 +339,13 @@ function atualizarPainel(retrato) {
     desenharPeca(el.guardada, retrato.guardada);
   }
   el.guardada.toggleAttribute('data-usada', !retrato.pode_guardar);
+  // O quadro sozinho não ensina que dá para trazer a peça de volta.
+  const gestoGuardar = retrato.camera ? 'polegar no médio' : 'tecla C';
+  el.guardadaDica.textContent = !retrato.guardada
+    ? `${gestoGuardar} guarda a peça`
+    : retrato.pode_guardar
+      ? `${gestoGuardar} troca`
+      : 'troca de novo na próxima peça';
 
   const comCamera = retrato.camera;
   // A imagem só é pedida com a câmera ligada, e é largada se ela cair: sem o
@@ -331,7 +365,8 @@ function atualizarPainel(retrato) {
   el.cameraVazia.hidden = comCamera;
   el.gestoAtual.hidden = !comCamera;
 
-  const gesto = retrato.controle.gesto;
+  // Descer rápido não é um gesto próprio: é a mão aberta, só que baixa.
+  const gesto = retrato.controle.descendo ? 'descer' : retrato.controle.gesto;
   el.gestoNome.textContent = NOMES_DOS_GESTOS[gesto] ?? gesto;
   for (const item of el.comandosGestos.children) {
     item.toggleAttribute('data-ativo', comCamera && item.dataset.gesto === gesto);

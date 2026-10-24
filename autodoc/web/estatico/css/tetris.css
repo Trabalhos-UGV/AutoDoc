@@ -358,6 +358,13 @@ kbd {
 .guardada { height: 64px; transition: opacity 160ms ease; }
 .guardada[data-usada] { opacity: 0.35; }
 
+.guardada__dica {
+  margin: -4px 0 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ad-fraco);
+}
+
 /* ------------------------------------------------------- gesto atual */
 
 .gesto__nome {
