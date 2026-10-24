@@ -64,6 +64,14 @@ class TestMacOS(BaseAtalho):
         self.assertIn(f'cd "{atalho.RAIZ}"', texto)
         self.assertIn("main.py app", texto)
 
+    def test_o_lancador_roda_nativo_no_chip_apple(self):
+        """Sem isto o macOS abria o app pelo Rosetta e o numpy nao carregava."""
+        texto = (self.pacote / "Contents" / "MacOS" / "AutoDoc").read_text(encoding="utf-8")
+        self.assertIn("hw.optional.arm64", texto)
+        self.assertIn("exec arch -arm64", texto)
+        dados = plistlib.loads((self.pacote / "Contents" / "Info.plist").read_bytes())
+        self.assertEqual(dados["LSArchitecturePriority"][0], "arm64")
+
     def test_o_lancador_usa_o_python_do_venv(self):
         texto = (self.pacote / "Contents" / "MacOS" / "AutoDoc").read_text(encoding="utf-8")
         self.assertIn("venv/bin/python", texto)

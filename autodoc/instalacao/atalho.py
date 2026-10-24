@@ -82,6 +82,9 @@ def _criar_macos(destino_base: Path | None) -> Atalho:
         "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": _versao(),
         "NSHighResolutionCapable": True,
+        # Num Mac com chip Apple, preferir a versao nativa. O lancador abaixo
+        # tambem cuida disso; aqui e para o proprio macOS saber.
+        "LSArchitecturePriority": ["arm64", "x86_64"],
         # Sem esta frase o macOS fecha o app na hora em que ele abre a camera,
         # sem pergunta nem aviso. Ela e o que aparece no pedido de permissao:
         # rodando pelo icone, quem pede a camera e o AutoDoc, nao o Terminal.
@@ -93,11 +96,21 @@ def _criar_macos(destino_base: Path | None) -> Atalho:
     if icone.exists():
         (recursos / "autodoc.icns").write_bytes(icone.read_bytes())
 
+    # O executavel do pacote e um script, e o macOS nao sabe que arquitetura
+    # um script quer: num Mac com chip Apple ele abria o AutoDoc pelo Rosetta,
+    # emulando Intel. O Python, que e universal, subia na versao Intel, e os
+    # pacotes compilados so para Apple Silicon (numpy, OpenCV, MediaPipe) nao
+    # carregavam — o Tetris morria ao abrir. `arch -arm64` forca a nativa.
+    # `hw.optional.arm64` responde 1 no chip Apple mesmo de dentro do Rosetta.
+    python = _python_do_projeto()
     lancador = executaveis / NOME
     lancador.write_text(
         "#!/bin/bash\n"
         f'cd "{RAIZ}"\n'
-        f'exec "{_python_do_projeto()}" main.py app\n',
+        'if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then\n'
+        f'    exec arch -arm64 "{python}" main.py app\n'
+        "fi\n"
+        f'exec "{python}" main.py app\n',
         encoding="utf-8",
     )
     lancador.chmod(0o755)
