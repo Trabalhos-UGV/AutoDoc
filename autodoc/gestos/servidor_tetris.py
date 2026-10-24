@@ -5,6 +5,8 @@
     GET  /api/eventos        SSE — um retrato por quadro, 30 por segundo
     GET  /api/camera.mjpg    a imagem da camera, em MJPEG
     POST /api/tecla          {tecla} com o `event.key` do navegador
+    POST /api/personagem     {nome}: escolhe o personagem e comeca a jogar
+    POST /api/personagem/trocar   volta para a escolha, com o jogo parado
 
 E o mesmo arranjo do aplicativo: um servidor so em 127.0.0.1, as telas em HTML
 e a janela nativa por cima. As rotas herdam de `web.servidor.Rotas`, que ja
@@ -33,6 +35,7 @@ import threading
 import time
 from functools import partial
 
+from autodoc.gestos import personagens
 from autodoc.gestos.comandos_tetris import Comandos
 from autodoc.gestos.reconhecimento import CONEXOES
 from autodoc.gestos.tetris import ROTACOES, TIPOS, Jogo
@@ -64,6 +67,10 @@ class Partida:
         # do quadro, ja no formato que a tela desenha.
         self.camera = False
         self.camera_tamanho: tuple[int, int] | None = None
+        # Com a camera, o jogo comeca na escolha do personagem — e ja com um
+        # escolhido, para o rosto nunca aparecer descoberto, nem na escolha.
+        self.personagem: str | None = None
+        self.escolhendo = False
         self.maos: list[dict] = []
         self._eventos: list[dict] = []
         self._trava = threading.Lock()
@@ -71,14 +78,32 @@ class Partida:
     def passo(self, agora: float, gesto=None, pontos=None, maos: list[dict] | None = None) -> None:
         """Um quadro. Sem `gesto` e so o tempo passando — o modo sem camera."""
         with self._trava:
+            if self.escolhendo:
+                # Parado: so a mao continua aparecendo na camera.
+                self.maos = maos or []
+                return
             if gesto is not None:
                 self.comandos.aplicar(gesto, pontos, agora)
                 self.maos = maos or []
             self.jogo.atualizar(agora)
             self._eventos += self.jogo.tirar_eventos()
 
+    def escolher_personagem(self, nome: str) -> bool:
+        if nome not in personagens.NOMES:
+            return False
+        with self._trava:
+            self.personagem = nome
+            self.escolhendo = False
+        return True
+
+    def trocar_personagem(self) -> None:
+        with self._trava:
+            self.escolhendo = True
+
     def tecla(self, nome: str) -> bool:
         with self._trava:
+            if self.escolhendo:
+                return False
             aceita = self.comandos.tecla(nome)
             self._eventos += self.jogo.tirar_eventos()
             return aceita
@@ -103,6 +128,9 @@ class Partida:
                 "conexoes": CONEXOES,
                 "eventos": eventos,
                 "formas": FORMAS,
+                "personagem": self.personagem,
+                "escolhendo": self.escolhendo,
+                "personagens": personagens.para_tela(),
             }
 
 
@@ -197,9 +225,18 @@ class RotasTetris(Rotas):
             pass  # a tela foi fechada
 
     def do_POST(self) -> None:  # noqa: N802 - nome exigido pela biblioteca
-        if self.path.split("?", 1)[0] == "/api/tecla":
+        rota = self.path.split("?", 1)[0]
+        partida = self.servidor.partida
+        if rota == "/api/tecla":
             tecla = str(self._corpo().get("tecla", ""))
-            return self._json({"aceita": self.servidor.partida.tecla(tecla)})
+            return self._json({"aceita": partida.tecla(tecla)})
+        if rota == "/api/personagem":
+            if not partida.escolher_personagem(str(self._corpo().get("nome", ""))):
+                return self._json({"erro": "personagem desconhecido"}, 400)
+            return self._json(partida.retrato(consumir=False))
+        if rota == "/api/personagem/trocar":
+            partida.trocar_personagem()
+            return self._json(partida.retrato(consumir=False))
         self._json({"erro": "rota desconhecida"}, 404)
 
 

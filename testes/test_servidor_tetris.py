@@ -57,6 +57,33 @@ class TestPartida(unittest.TestCase):
         self.assertFalse(retrato["camera"])
 
 
+class TestPersonagem(unittest.TestCase):
+    def test_escolhendo_o_jogo_fica_parado_e_o_teclado_nao_comanda(self):
+        partida = partida_parada()
+        partida.escolhendo = True
+        maos = [{"principal": True, "pontos": []}]
+        for i in range(200):
+            partida.passo(i / 60, Gesto.MOVER, montar_mao(), maos)
+        self.assertEqual(partida.jogo.peca.linha, 5)
+        self.assertEqual(partida.maos, maos)  # a mao continua aparecendo
+        self.assertFalse(partida.tecla("ArrowLeft"))
+
+    def test_escolher_comeca_o_jogo(self):
+        partida = partida_parada()
+        partida.escolhendo = True
+        self.assertTrue(partida.escolher_personagem("sapo"))
+        self.assertEqual((partida.personagem, partida.escolhendo), ("sapo", False))
+        self.assertFalse(partida.escolher_personagem("dragao"))
+        self.assertEqual(partida.personagem, "sapo")
+
+    def test_trocar_volta_para_a_escolha(self):
+        partida = partida_parada()
+        partida.trocar_personagem()
+        retrato = partida.retrato()
+        self.assertTrue(retrato["escolhendo"])
+        self.assertEqual(len(retrato["personagens"]), 15)
+
+
 class TestRotas(unittest.TestCase):
     def setUp(self):
         self.partida = partida_parada()
@@ -94,6 +121,19 @@ class TestRotas(unittest.TestCase):
         self.assertEqual(self.partida.jogo.peca.coluna, 2)
         _, corpo = self.pedir("api/tecla", {})
         self.assertEqual(json.loads(corpo), {"aceita": False})
+
+    def test_escolher_e_trocar_pela_rede(self):
+        _, corpo = self.pedir("api/personagem", {"nome": "raposa"})
+        self.assertEqual(json.loads(corpo)["personagem"], "raposa")
+        _, corpo = self.pedir("api/personagem/trocar", {})
+        self.assertTrue(json.loads(corpo)["escolhendo"])
+        with self.assertRaises(urllib.error.HTTPError) as erro:
+            self.pedir("api/personagem", {"nome": "dragao"})
+        self.assertEqual(erro.exception.code, 400)
+
+    def test_imagem_do_personagem_e_servida(self):
+        status, corpo = self.pedir("personagens/panda.png")
+        self.assertEqual((status, corpo[:4]), (200, b"\x89PNG"))
 
     def test_rotas_desconhecidas(self):
         for rota, corpo in (("api/nada", None), ("api/nada", {})):
