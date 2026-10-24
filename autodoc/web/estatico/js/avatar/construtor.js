@@ -15,6 +15,8 @@
        expressoes: { piscar_esquerdo, piscar_direito, boca, sorriso, sobrancelhas },  // 0 a 1
        bracos:     { esquerdo: { ombro, cotovelo, pulso }, direito: { ... } },       // [x, y, z]
        maos:       { esquerda: [[x, y, z] × 21] | null, direita: ... },
+       feliz:      true | false,   // abana o rabo depressa (comemoração)
+       pulo:       metros,         // o boneco inteiro sobe (o "TETRIS!")
      }
 
    "Esquerdo" é sempre o lado esquerdo da tela: o boneco é um espelho de
@@ -340,6 +342,10 @@ export function construirPersonagem(ficha) {
   function aplicar(pose, tempo) {
     rotacao.set(...pose.cabeca.rotacao);
     cabeca.cabeca.quaternion.slerp(rotacao, 1);
+
+    // Respira sempre, de leve: parado demais, o boneco parece estátua.
+    corpo.scale.set(1, 1 + Math.sin(tempo * 2.2) * 0.012, 1);
+    raiz.position.y = pose.pulo ?? 0;
 
     const e = pose.expressoes;
     const [olhoEsquerdo, olhoDireito] = cabeca.olhos;

@@ -129,6 +129,17 @@ body { overflow: hidden; }
   object-fit: cover;
 }
 
+/* Com o avatar, o painel vira palco: mais alto, para o personagem caber de
+   corpo inteiro (do peito para cima), e com o fundo do palco de avatar.css. */
+.camera[data-avatar] {
+  aspect-ratio: 4 / 5;
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 42%, rgba(240, 193, 42, 0.16), transparent 70%),
+    radial-gradient(ellipse 120% 80% at 50% 110%, #2a2419, transparent 60%),
+    var(--ad-console);
+}
+.camera__palco { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
 .camera__vazia {
   position: absolute;
   inset: 0;

@@ -14,6 +14,11 @@
    tamanho, com os pontos que vêm no retrato. No tabuleiro, uma faixa marca a
    coluna para onde a mão aponta: a peça está indo para lá.
 
+   Com o avatar 3D, nada da câmera chega aqui: só a pose do personagem, que
+   js/avatar/no_jogo.js desenha no lugar da imagem. Esse módulo só é carregado
+   quando o avatar liga; se a máquina não tiver WebGL, a tela pede ao servidor
+   para voltar à máscara 2D.
+
    O teclado manda cada tecla para /api/tecla. É o mesmo caminho que o gesto
    usa por dentro, então jogar pelo teclado testa o jogo de verdade. */
 
@@ -36,6 +41,8 @@ const el = {
   modo: document.querySelector('[data-modo]'),
   modoTexto: document.querySelector('[data-modo-texto]'),
   camera: document.querySelector('[data-camera]'),
+  cameraTitulo: document.querySelector('[data-camera-titulo]'),
+  palco: document.querySelector('[data-palco]'),
   video: document.querySelector('[data-camera-video]'),
   maos: document.querySelector('[data-camera-maos]'),
   cameraVazia: document.querySelector('[data-camera-vazia]'),
@@ -75,6 +82,8 @@ let animacoes = []; // {tipo, inicio, ...}
 let deslize = null; // {linhas, colunas, inicio}: de onde a peça vem deslizando
 let pontosExibidos = 0;
 let reduzida = animacaoReduzida();
+let avatar = null; // o personagem 3D, quando ligado
+let avatarCarregando = false;
 const cores = {};
 
 /* ------------------------------------------------------------- cores */
@@ -351,12 +360,20 @@ function atualizarPainel(retrato) {
       : 'troca de novo na próxima peça';
 
   const comCamera = retrato.camera;
-  // A imagem só é pedida com a câmera ligada, e é largada se ela cair: sem o
-  // src, o navegador fecha a conexão do MJPEG.
-  if (comCamera && !el.video.getAttribute('src')) el.video.src = 'api/camera.mjpg';
-  if (!comCamera && el.video.getAttribute('src')) el.video.removeAttribute('src');
-  el.video.hidden = !comCamera;
-  if (retrato.camera_tamanho) {
+  const comAvatar = comCamera && retrato.avatar;
+  // A imagem só é pedida com a câmera ligada e sem o avatar, e é largada se
+  // ela cair: sem o src, o navegador fecha a conexão do MJPEG.
+  const querVideo = comCamera && !comAvatar;
+  if (querVideo && !el.video.getAttribute('src')) el.video.src = 'api/camera.mjpg';
+  if (!querVideo && el.video.getAttribute('src')) el.video.removeAttribute('src');
+  el.video.hidden = !querVideo;
+  el.maos.hidden = comAvatar;
+  el.palco.hidden = !comAvatar;
+  el.camera.toggleAttribute('data-avatar', comAvatar);
+  el.cameraTitulo.textContent = comAvatar ? 'Você' : 'Sua mão';
+  if (comAvatar) {
+    el.camera.style.aspectRatio = '';
+  } else if (retrato.camera_tamanho) {
     const [larguraCamera, alturaCamera] = retrato.camera_tamanho;
     el.camera.style.aspectRatio = `${larguraCamera} / ${alturaCamera}`;
   }
@@ -375,7 +392,8 @@ function atualizarPainel(retrato) {
     item.toggleAttribute('data-ativo', comCamera && item.dataset.gesto === gesto);
   }
 
-  el.trocar.hidden = !comCamera || retrato.escolhendo;
+  // Trocar só faz sentido havendo mais de um para escolher.
+  el.trocar.hidden = !comCamera || retrato.escolhendo || retrato.personagens.length < 2;
   mostrarEscolha(retrato);
   avisar(retrato);
 }
@@ -515,12 +533,32 @@ function receber(retrato) {
   }
 
   atualizarPainel(retrato);
+  if (retrato.camera && retrato.avatar) ligarAvatar();
+  avatar?.receber(retrato, agora);
+}
+
+/** Carrega o three.js e o personagem, uma vez só. Sem WebGL, volta à máscara. */
+function ligarAvatar() {
+  if (avatar || avatarCarregando) return;
+  avatarCarregando = true;
+  import('./avatar/no_jogo.js')
+    .then(({ criarAvatarNoJogo }) => {
+      avatar = criarAvatarNoJogo(el.palco);
+      avatar.receber(atual, performance.now());
+    })
+    .catch(() => {
+      fetch('api/avatar/desligar', { method: 'POST', body: '{}' }).catch(() => {});
+    })
+    .finally(() => {
+      avatarCarregando = false;
+    });
 }
 
 function quadro(agora) {
   if (atual) {
     desenharTabuleiro(agora);
-    desenharMaos();
+    if (avatar && atual.avatar) avatar.desenhar(agora);
+    else desenharMaos();
     // O placar conta até o valor novo em vez de saltar.
     const alvo = atual.pontos;
     pontosExibidos = Math.abs(alvo - pontosExibidos) < 1 ? alvo : pontosExibidos + (alvo - pontosExibidos) * 0.2;

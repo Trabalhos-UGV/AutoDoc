@@ -6,6 +6,9 @@
 <title>AutoDoc — Tetris</title>
 <link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/tetris.css">
+<link rel="stylesheet" href="css/avatar.css">
+<!-- O three.js do avatar 3D mora em vendor/; os módulos dele pedem "three" pelo nome. -->
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.min.js" } }</script>
 </head>
 <body>
 
@@ -26,10 +29,11 @@
   <!-- ------------------------------------------------------ câmera -->
   <aside class="coluna coluna--camera">
     <section class="ad-cartao bloco">
-      <h2 class="ad-rotulo">Sua mão</h2>
+      <h2 class="ad-rotulo" data-camera-titulo>Sua mão</h2>
       <div class="camera" data-camera>
         <img class="camera__video" data-camera-video alt="" hidden>
         <canvas class="camera__maos" data-camera-maos></canvas>
+        <canvas class="camera__palco" data-palco aria-label="Seu personagem 3D" role="img" hidden></canvas>
         <div class="camera__vazia" data-camera-vazia>
           <svg class="camera__icone" viewBox="0 0 24 24" aria-hidden="true">
             <rect x="2.5" y="6" width="19" height="12" rx="2.5"/>
