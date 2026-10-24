@@ -104,6 +104,8 @@ class TestMacOS(BaseAtalho):
         # Sem isto o macOS abria o app pelo Rosetta e o numpy nao carregava.
         self.assertIn("hw.optional.arm64", texto)
         self.assertIn("exec arch -arm64", texto)
+        # A janela usa isto para aparecer como AutoDoc no Dock.
+        self.assertIn("export AUTODOC_PELO_ICONE=1", texto)
 
     def test_rodar_de_novo_refaz_o_pacote(self):
         """A instalacao e idempotente; o atalho tambem precisa ser."""

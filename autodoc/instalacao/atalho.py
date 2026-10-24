@@ -106,6 +106,8 @@ def _script_de_abertura() -> str:
     return (
         "#!/bin/bash\n"
         f'cd "{RAIZ}"\n'
+        # A janela le isto para se apresentar como AutoDoc no Dock, e nao como Python.
+        "export AUTODOC_PELO_ICONE=1\n"
         'if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then\n'
         f'    exec arch -arm64 "{python}" main.py app\n'
         "fi\n"

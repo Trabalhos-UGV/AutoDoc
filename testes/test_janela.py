@@ -340,5 +340,61 @@ class TestJanelaNativa(unittest.TestCase):
         self.assertLess(janela.TAMANHO_MINIMO[0], janela.LARGURA_PADRAO)
 
 
+class TestComoAutoDoc(unittest.TestCase):
+    """No Dock do macOS, o AutoDoc aberto pelo icone nao aparece como Python."""
+
+    def falsos(self):
+        informacoes = {"CFBundleName": "Python"}
+        aplicacao = mock.Mock()
+        appkit = mock.Mock(NSApplication=mock.Mock(sharedApplication=lambda: aplicacao))
+        foundation = mock.Mock()
+        foundation.NSBundle.mainBundle.return_value.infoDictionary.return_value = informacoes
+        return informacoes, aplicacao, {"AppKit": appkit, "Foundation": foundation}
+
+    def test_pelo_icone_troca_nome_e_icone(self):
+        informacoes, aplicacao, modulos = self.falsos()
+        with (
+            mock.patch.object(janela.sys, "platform", "darwin"),
+            mock.patch.dict(janela.os.environ, {"AUTODOC_PELO_ICONE": "1"}),
+            mock.patch.dict(sys.modules, modulos),
+        ):
+            janela.apresentar_como_autodoc()
+        self.assertEqual(informacoes["CFBundleName"], "AutoDoc")
+        if janela.ICONE.exists():
+            aplicacao.setApplicationIconImage_.assert_called_once()
+
+    def test_pelo_terminal_nao_mexe(self):
+        informacoes, _, modulos = self.falsos()
+        with (
+            mock.patch.object(janela.sys, "platform", "darwin"),
+            mock.patch.dict(janela.os.environ, {}, clear=True),
+            mock.patch.dict(sys.modules, modulos),
+        ):
+            janela.apresentar_como_autodoc()
+        self.assertEqual(informacoes["CFBundleName"], "Python")
+
+    def test_fora_do_mac_ou_sem_pyobjc(self):
+        with mock.patch.object(janela.sys, "platform", "win32"), mock.patch.dict(janela.os.environ, {"AUTODOC_PELO_ICONE": "1"}):
+            janela.apresentar_como_autodoc()
+        with (
+            mock.patch.object(janela.sys, "platform", "darwin"),
+            mock.patch.dict(janela.os.environ, {"AUTODOC_PELO_ICONE": "1"}),
+            mock.patch.dict(sys.modules, {"AppKit": None}),
+        ):
+            janela.apresentar_como_autodoc()
+
+    def test_sem_dicionario_e_sem_icone(self):
+        _, aplicacao, modulos = self.falsos()
+        modulos["Foundation"].NSBundle.mainBundle.return_value.infoDictionary.return_value = None
+        with (
+            mock.patch.object(janela.sys, "platform", "darwin"),
+            mock.patch.dict(janela.os.environ, {"AUTODOC_PELO_ICONE": "1"}),
+            mock.patch.dict(sys.modules, modulos),
+            mock.patch.object(janela, "ICONE", janela.Path("/nao/existe.icns")),
+        ):
+            janela.apresentar_como_autodoc()
+        aplicacao.setApplicationIconImage_.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
