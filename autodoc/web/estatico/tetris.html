@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoDoc — Tetris</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/tetris.css">
+</head>
+<body>
+
+<div class="tetris">
+
+  <!-- ------------------------------------------------------- topo -->
+  <header class="topo">
+    <div class="topo__marca">
+      <span class="topo__sigla" aria-hidden="true">A</span>
+      <span class="topo__nome">AutoDoc <span class="topo__fino">· Tetris</span></span>
+    </div>
+    <p class="topo__modo ad-mono" data-modo>
+      <span class="topo__ponto" aria-hidden="true"></span>
+      <span data-modo-texto>conectando…</span>
+    </p>
+  </header>
+
+  <!-- ------------------------------------------------------ câmera -->
+  <aside class="coluna coluna--camera">
+    <section class="ad-cartao bloco">
+      <h2 class="ad-rotulo">Sua mão</h2>
+      <div class="camera" data-camera>
+        <img class="camera__video" data-camera-video alt="" hidden>
+        <canvas class="camera__maos" data-camera-maos></canvas>
+        <div class="camera__vazia" data-camera-vazia>
+          <svg class="camera__icone" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2.5" y="6" width="19" height="12" rx="2.5"/>
+            <path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 13.5h.01M18 13.5h.01M9 14.5h6"/>
+          </svg>
+          <p>Câmera desligada.<br>Jogando pelo teclado.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="ad-cartao bloco">
+      <h2 class="ad-rotulo">Como jogar</h2>
+      <ul class="comandos" data-comandos-gestos hidden>
+        <li data-gesto="mover"><span class="comandos__icone" aria-hidden="true">✋</span>
+          <span>Mão para os lados<small>a peça vai junto</small></span></li>
+        <li data-gesto="pinca indicador"><span class="comandos__icone" aria-hidden="true">👌</span>
+          <span>Polegar no indicador<small>gira a peça</small></span></li>
+        <li data-gesto="punho"><span class="comandos__icone" aria-hidden="true">✊</span>
+          <span>Feche a mão<small>a peça despenca</small></span></li>
+        <li data-gesto="pinca medio"><span class="comandos__icone" aria-hidden="true">🤌</span>
+          <span>Polegar no médio<small>guarda a peça</small></span></li>
+      </ul>
+      <ul class="comandos comandos--teclas" data-comandos-teclas>
+        <li><kbd>←</kbd><kbd>→</kbd><span>move</span></li>
+        <li><kbd>↑</kbd><span>gira</span></li>
+        <li><kbd>↓</kbd><span>desce</span></li>
+        <li><kbd class="largo">espaço</kbd><span>despenca</span></li>
+        <li><kbd>C</kbd><span>guarda</span></li>
+        <li><kbd>P</kbd><span>pausa</span></li>
+      </ul>
+    </section>
+  </aside>
+
+  <!-- ----------------------------------------------------- tabuleiro -->
+  <main class="campo">
+    <div class="campo__moldura" data-moldura>
+      <canvas class="campo__tela" data-tabuleiro aria-label="Tabuleiro do Tetris" role="img"></canvas>
+
+      <div class="aviso" data-aviso hidden>
+        <p class="aviso__titulo" data-aviso-titulo></p>
+        <p class="aviso__numero ad-mono" data-aviso-numero></p>
+        <p class="aviso__texto" data-aviso-texto></p>
+      </div>
+
+      <p class="brinde ad-mono" data-brinde aria-live="polite"></p>
+    </div>
+  </main>
+
+  <!-- ------------------------------------------------------ lateral -->
+  <aside class="coluna coluna--placar">
+    <section class="ad-cartao bloco placar">
+      <h2 class="ad-rotulo">Pontos</h2>
+      <p class="placar__pontos ad-mono" data-pontos>0</p>
+      <div class="placar__linha">
+        <div><h3 class="ad-rotulo">Nível</h3><p class="placar__valor ad-mono" data-nivel>1</p></div>
+        <div><h3 class="ad-rotulo">Linhas</h3><p class="placar__valor ad-mono" data-linhas>0</p></div>
+      </div>
+    </section>
+
+    <section class="ad-cartao bloco">
+      <h2 class="ad-rotulo">Próximas</h2>
+      <div class="fila">
+        <canvas class="fila__peca fila__peca--primeira" data-proxima></canvas>
+        <canvas class="fila__peca" data-proxima></canvas>
+        <canvas class="fila__peca" data-proxima></canvas>
+      </div>
+    </section>
+
+    <section class="ad-cartao bloco">
+      <h2 class="ad-rotulo">Guardada</h2>
+      <canvas class="fila__peca guardada" data-guardada></canvas>
+    </section>
+
+    <section class="ad-cartao bloco gesto" data-gesto-atual hidden>
+      <h2 class="ad-rotulo">Agora</h2>
+      <p class="gesto__nome" data-gesto-nome>—</p>
+    </section>
+  </aside>
+
+</div>
+
+<script type="module" src="js/tetris.js"></script>
+</body>
+</html>
