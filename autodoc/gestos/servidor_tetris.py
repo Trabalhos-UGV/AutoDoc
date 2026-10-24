@@ -3,6 +3,7 @@
     GET  /                   a tela (tetris.html)
     GET  /api/estado         o retrato atual, sem consumir os eventos
     GET  /api/eventos        SSE — um retrato por quadro, 30 por segundo
+    GET  /api/camera.mjpg    a imagem da camera, em MJPEG
     POST /api/tecla          {tecla} com o `event.key` do navegador
 
 E o mesmo arranjo do aplicativo: um servidor so em 127.0.0.1, as telas em HTML
@@ -17,6 +18,11 @@ trava, uma tecla no meio de um quadro poderia ver a peca pela metade.
 nao faz falta: a tela que engasgou pula para o mais novo em vez de acumular
 atraso. A fila do aplicativo nao tem limite porque la cada evento e um
 documento; aqui sao 30 por segundo.
+
+**A camera vai em MJPEG.** Uma resposta que nunca acaba, com um JPEG atras do
+outro separados por uma fronteira. Um `<img>` comum mostra isso como video, no
+WebKit do macOS e no WebView2 do Windows, sem uma linha de JavaScript. So vai
+o quadro mais novo: quem chega atrasado pula os do meio.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ import time
 from functools import partial
 
 from autodoc.gestos.comandos_tetris import Comandos
+from autodoc.gestos.reconhecimento import CONEXOES
 from autodoc.gestos.tetris import ROTACOES, TIPOS, Jogo
 from autodoc.web.servidor import Rotas, abrir_porta
 
@@ -44,6 +51,8 @@ FILA_POR_TELA = 4
 # divergirem.
 FORMAS = {tipo: [list(celula) for celula in ROTACOES[tipo][0]] for tipo in TIPOS}
 
+FRONTEIRA = b"quadro"
+
 
 class Partida:
     """O jogo e o controle dele, com o que a tela precisa alem das regras."""
@@ -54,6 +63,7 @@ class Partida:
         # Preenchidos pela camera, quando houver: se ela esta ligada e as maos
         # do quadro, ja no formato que a tela desenha.
         self.camera = False
+        self.camera_tamanho: tuple[int, int] | None = None
         self.maos: list[dict] = []
         self._eventos: list[dict] = []
         self._trava = threading.Lock()
@@ -88,7 +98,9 @@ class Partida:
                 **self.jogo.estado(),
                 "controle": self.comandos.estado(),
                 "camera": self.camera,
+                "camera_tamanho": self.camera_tamanho,
                 "maos": self.maos,
+                "conexoes": CONEXOES,
                 "eventos": eventos,
                 "formas": FORMAS,
             }
@@ -101,13 +113,20 @@ class ServidorTetris:
         self._http = None
         self._ouvintes: list[queue.Queue] = []
         self._trava = threading.Lock()
+        self._imagem: bytes | None = None
+        self._imagem_nova = threading.Condition()
+        self.ativo = False
 
     def iniciar(self) -> str:
         self._http, self.porta = abrir_porta(partial(RotasTetris, servidor=self), self.porta)
         threading.Thread(target=self._http.serve_forever, daemon=True).start()
+        self.ativo = True
         return f"http://127.0.0.1:{self.porta}/"
 
     def parar(self) -> None:
+        with self._imagem_nova:
+            self.ativo = False
+            self._imagem_nova.notify_all()
         if self._http:
             self._http.shutdown()
             self._http.server_close()
@@ -118,6 +137,17 @@ class ServidorTetris:
                 if fila.full():
                     fila.get_nowait()
                 fila.put_nowait(retrato)
+
+    def publicar_imagem(self, jpeg: bytes) -> None:
+        with self._imagem_nova:
+            self._imagem = jpeg
+            self._imagem_nova.notify_all()
+
+    def esperar_imagem(self, anterior: bytes | None, espera: float = 1.0) -> bytes | None:
+        """O proximo quadro da camera diferente de `anterior`, ou None se nao vier."""
+        with self._imagem_nova:
+            self._imagem_nova.wait_for(lambda: self._imagem is not anterior or not self.ativo, espera)
+            return self._imagem if self._imagem is not anterior else None
 
     # O nome e o formato que `Rotas._sse` espera do servidor.
     def _inscrever(self) -> queue.Queue:
@@ -144,7 +174,27 @@ class RotasTetris(Rotas):
             return self._json(self.servidor.partida.retrato(consumir=False))
         if rota == "/api/eventos":
             return self._sse()
+        if rota == "/api/camera.mjpg":
+            return self._mjpeg()
         self._json({"erro": "rota desconhecida"}, 404)
+
+    def _mjpeg(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=" + FRONTEIRA.decode())
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        anterior = None
+        try:
+            while self.servidor.ativo:
+                jpeg = self.servidor.esperar_imagem(anterior)
+                if jpeg is None:
+                    continue
+                anterior = jpeg
+                cabecalho = b"--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % (FRONTEIRA, len(jpeg))
+                self.wfile.write(cabecalho + jpeg + b"\r\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # a tela foi fechada
 
     def do_POST(self) -> None:  # noqa: N802 - nome exigido pela biblioteca
         if self.path.split("?", 1)[0] == "/api/tecla":

@@ -140,6 +140,77 @@ class TestRotas(unittest.TestCase):
         self.assertEqual(self.servidor._ouvintes, [])
 
 
+class TestCamera(unittest.TestCase):
+    def setUp(self):
+        self.servidor = ServidorTetris(partida_parada(), porta=18778)
+        self.url = self.servidor.iniciar()
+        self.addCleanup(self.servidor.parar)
+
+    def test_retrato_leva_os_ossos_da_mao(self):
+        retrato = self.servidor.partida.retrato()
+        self.assertEqual(len(retrato["conexoes"]), 21)
+        self.assertIsNone(retrato["camera_tamanho"])
+
+    def test_espera_sem_quadro_novo_devolve_none(self):
+        self.assertIsNone(self.servidor.esperar_imagem(None, espera=0.05))
+        self.servidor.publicar_imagem(b"um")
+        self.assertEqual(self.servidor.esperar_imagem(None, espera=0.05), b"um")
+        self.assertIsNone(self.servidor.esperar_imagem(b"um", espera=0.05))
+
+    def test_mjpeg_entrega_o_quadro_mais_novo(self):
+        recebido = []
+
+        def assistir():
+            with urllib.request.urlopen(self.url + "api/camera.mjpg", timeout=5) as fluxo:
+                recebido.append(fluxo.headers["Content-Type"])
+                while len(recebido) < 3:
+                    linha = fluxo.readline()
+                    if linha.startswith(b"Content-Length:"):
+                        tamanho = int(linha.split(b":")[1])
+                        fluxo.readline()
+                        recebido.append(fluxo.read(tamanho))
+
+        assistente = threading.Thread(target=assistir, daemon=True)
+        assistente.start()
+        time.sleep(0.2)
+        for quadro in (b"\xff\xd8primeiro", b"\xff\xd8segundo"):
+            self.servidor.publicar_imagem(quadro)
+            time.sleep(0.15)
+        assistente.join(5)
+        self.assertEqual(recebido, ["multipart/x-mixed-replace; boundary=quadro", b"\xff\xd8primeiro", b"\xff\xd8segundo"])
+
+    def test_parar_encerra_a_transmissao(self):
+        terminou = threading.Event()
+
+        def assistir():
+            try:
+                with urllib.request.urlopen(self.url + "api/camera.mjpg", timeout=5) as fluxo:
+                    fluxo.read()
+            except OSError:
+                pass
+            terminou.set()
+
+        threading.Thread(target=assistir, daemon=True).start()
+        time.sleep(0.2)
+        self.servidor.parar()
+        self.assertTrue(terminou.wait(3))
+
+    def test_tela_fechada_no_meio_da_transmissao(self):
+        fluxo = urllib.request.urlopen(self.url + "api/camera.mjpg", timeout=5)
+        self.servidor.publicar_imagem(b"\xff\xd8a")
+        time.sleep(0.1)
+        fluxo.close()
+        for numero in range(20):
+            self.servidor.publicar_imagem(b"\xff\xd8" + bytes([numero]) * 70000)
+            time.sleep(0.02)
+        # Chegar aqui sem o servidor travar e o que se testa.
+        self.assertEqual(self.pedir_estado()["peca"]["tipo"], "T")
+
+    def pedir_estado(self):
+        with urllib.request.urlopen(self.url + "api/estado", timeout=5) as resposta:
+            return json.loads(resposta.read())
+
+
 class EventoContado:
     """Um `threading.Event` que se arma sozinho depois de algumas esperas."""
 
