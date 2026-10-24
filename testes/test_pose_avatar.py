@@ -126,15 +126,28 @@ class TestCabeca(unittest.TestCase):
 
 
 class TestBracoEMao(unittest.TestCase):
-    def test_braco_espelhado_e_escalado_pelos_ombros(self):
+    def test_braco_com_a_direcao_da_pessoa_e_o_tamanho_do_boneco(self):
         direito = braco(corpo(), "direito")
         self.assertEqual(direito["ombro"], OMBROS["direito"])
-        escala = 0.46 / 0.4
-        # O cotovelo esta 0,25 m abaixo do ombro e 0,02 m para fora.
-        self.assertAlmostEqual(direito["cotovelo"][1], 0.30 - 0.25 * escala)
-        self.assertAlmostEqual(direito["cotovelo"][0], 0.23 + 0.02 * escala)
-        # O pulso vem 0,1 m para perto da camera: no avatar, para fora da tela.
-        self.assertAlmostEqual(direito["pulso"][2], 0.1 * escala)
+        self.assertAlmostEqual(math.dist(direito["ombro"], direito["cotovelo"]), pose_avatar.BRACO)
+        self.assertAlmostEqual(math.dist(direito["cotovelo"], direito["pulso"]), pose_avatar.ANTEBRACO)
+        # O cotovelo da pessoa fica abaixo e um pouco para fora do ombro.
+        self.assertLess(direito["cotovelo"][1], direito["ombro"][1])
+        self.assertGreater(direito["cotovelo"][0], direito["ombro"][0])
+        # O pulso vem para perto da camera: no avatar, para fora da tela.
+        self.assertGreater(direito["pulso"][2], 0)
+
+    def test_ombros_medidos_errado_nao_esticam_o_braco(self):
+        """Na foto de teste o MediaPipe pos os ombros a 4 cm um do outro."""
+        juntos = corpo()
+        juntos[11] = p(-0.16, -0.5, 0)
+        direito = braco(juntos, "direito")
+        self.assertAlmostEqual(math.dist(direito["ombro"], direito["pulso"]), pose_avatar.BRACO + pose_avatar.ANTEBRACO, places=1)
+
+    def test_braco_sem_tamanho_nao_vira_pose(self):
+        dobrado = corpo()
+        dobrado[14] = dobrado[12]
+        self.assertIsNone(braco(dobrado, "direito"))
 
     def test_braco_levantado_vai_para_cima(self):
         self.assertGreater(braco(corpo(braco_direito_para_cima=True), "direito")["pulso"][1], 0.6)

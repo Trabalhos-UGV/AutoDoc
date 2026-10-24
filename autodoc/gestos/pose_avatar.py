@@ -21,9 +21,12 @@ imagem crua, x cresce para a direita da camera, y para baixo e z para longe;
 o espelho troca o x, e o espaco do avatar troca y e z.
 
 **O corpo do personagem nao e o da pessoa.** Os ombros dele ficam sempre no
-mesmo lugar; dos braços da pessoa vem so a direcao e a proporcao, escalada
-pela largura dos ombros. A mao vira pata: escalada pelo palmo, para todo mundo
-ter a mesma pata, de crianca ou de adulto.
+mesmo lugar, e os bracos tem o comprimento dele; da pessoa vem so a DIRECAO de
+cada osso (ombro ate cotovelo, cotovelo ate pulso). A primeira versao escalava
+o braco pela largura dos ombros medida — e quando o MediaPipe punha os dois
+ombros quase no mesmo ponto (aconteceu na foto de teste: 4 cm), a escala
+explodia e o braco do boneco atravessava a tela. A mao vira pata: escalada
+pelo palmo, para todo mundo ter a mesma pata, de crianca ou de adulto.
 
 **Nada some de uma vez.** Parte que o MediaPipe perde (braco fora do quadro,
 rosto virado) fica no ultimo lugar por meio segundo e depois volta, aos
@@ -39,7 +42,10 @@ from autodoc.gestos.cursor import FiltroUmEuro
 
 # O esqueleto fixo do personagem, no espaco dele.
 OMBROS = {"esquerdo": (-0.23, 0.30, 0.0), "direito": (0.23, 0.30, 0.0)}
-LARGURA_DOS_OMBROS = OMBROS["direito"][0] - OMBROS["esquerdo"][0]
+# Braco curto, de boneco: com o comprimento de gente, os bracos abertos
+# saiam do quadro.
+BRACO = 0.19  # ombro ate cotovelo
+ANTEBRACO = 0.17  # cotovelo ate pulso
 
 # O palmo da pata (pulso ate a base do medio). Fixo: crianca e adulto ganham a
 # mesma pata.
@@ -157,17 +163,24 @@ def quaternion(guinada: float, arfagem: float, rolagem: float) -> list[float]:
 # --------------------------------------------------------- braco e mao
 
 
+def _direcao(de: Vetor, ate: Vetor) -> Vetor | None:
+    diferenca = _menos(ate, de)
+    tamanho = math.dist(ate, de)
+    return _vezes(diferenca, 1 / tamanho) if tamanho > 1e-4 else None
+
+
 def braco(pontos_do_corpo, lado: str) -> dict[str, Vetor] | None:
     """Ombro, cotovelo e pulso do personagem, ou None se o braco nao aparece."""
     indices = BRACOS_MEDIAPIPE[lado]
     if any(getattr(pontos_do_corpo[i], "visibility", 1.0) < VISIBILIDADE for i in indices[1:]):
         return None
     ombro_real, cotovelo_real, pulso_real = (para_o_avatar(pontos_do_corpo[i]) for i in indices)
-    largura_real = math.dist(para_o_avatar(pontos_do_corpo[11]), para_o_avatar(pontos_do_corpo[12]))
-    escala = LARGURA_DOS_OMBROS / max(largura_real, 1e-3)
+    superior, inferior = _direcao(ombro_real, cotovelo_real), _direcao(cotovelo_real, pulso_real)
+    if superior is None or inferior is None:
+        return None
     ombro = OMBROS[lado]
-    cotovelo = _mais(ombro, _vezes(_menos(cotovelo_real, ombro_real), escala))
-    pulso = _mais(ombro, _vezes(_menos(pulso_real, ombro_real), escala))
+    cotovelo = _mais(ombro, _vezes(superior, BRACO))
+    pulso = _mais(cotovelo, _vezes(inferior, ANTEBRACO))
     return {"ombro": ombro, "cotovelo": cotovelo, "pulso": pulso}
 
 
