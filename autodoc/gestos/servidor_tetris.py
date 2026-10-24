@@ -28,7 +28,7 @@ import time
 from functools import partial
 
 from autodoc.gestos.comandos_tetris import Comandos
-from autodoc.gestos.tetris import Jogo
+from autodoc.gestos.tetris import ROTACOES, TIPOS, Jogo
 from autodoc.web.servidor import Rotas, abrir_porta
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,11 @@ PORTA_TETRIS = 8758
 QUADROS_POR_SEGUNDO = 60  # do laco sem camera
 PUBLICACOES_POR_SEGUNDO = 30  # retratos para a tela
 FILA_POR_TELA = 4
+
+# As pecas como nascem, para a tela desenhar a fila e a guardada. Vao junto do
+# retrato em vez de copiadas no JavaScript: uma fonte so, sem chance de as duas
+# divergirem.
+FORMAS = {tipo: [list(celula) for celula in ROTACOES[tipo][0]] for tipo in TIPOS}
 
 
 class Partida:
@@ -85,6 +90,7 @@ class Partida:
                 "camera": self.camera,
                 "maos": self.maos,
                 "eventos": eventos,
+                "formas": FORMAS,
             }
 
 
@@ -163,3 +169,26 @@ def rodar_sem_camera(partida: Partida, servidor: ServidorTetris, parar: threadin
             servidor.publicar(partida.retrato())
             ultimo = agora
         parar.wait(1 / QUADROS_POR_SEGUNDO)
+
+
+def jogar_pelo_teclado(porta: int = PORTA_TETRIS) -> int:
+    """Abre o Tetris na janela nativa, so com o teclado. Bloqueia ate fechar.
+
+    A janela fica com a thread principal, como a do aplicativo; o servidor e o
+    laco do jogo vao para threads, e descem quando a janela fecha.
+    """
+    from autodoc.web import janela
+
+    partida = Partida()
+    servidor = ServidorTetris(partida, porta)
+    url = servidor.iniciar()
+    parar = threading.Event()
+    laco = threading.Thread(target=rodar_sem_camera, args=(partida, servidor, parar), daemon=True)
+    laco.start()
+    try:
+        janela.abrir(url, titulo="AutoDoc — Tetris")
+    finally:
+        parar.set()
+        laco.join(timeout=2)
+        servidor.parar()
+    return 0

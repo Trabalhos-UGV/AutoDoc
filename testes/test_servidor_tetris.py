@@ -70,6 +70,15 @@ class TestRotas(unittest.TestCase):
         with urllib.request.urlopen(pedido, timeout=5) as resposta:
             return resposta.status, resposta.read()
 
+    def test_raiz_e_a_tela_do_tetris(self):
+        status, corpo = self.pedir("")
+        self.assertEqual(status, 200)
+        self.assertIn(b"js/tetris.js", corpo)
+
+    def test_formas_vao_junto_para_a_tela(self):
+        _, corpo = self.pedir("api/estado")
+        self.assertEqual(json.loads(corpo)["formas"]["O"], [[0, 1], [0, 2], [1, 1], [1, 2]])
+
     def test_serve_os_arquivos_das_telas(self):
         status, corpo = self.pedir("css/base.css")
         self.assertEqual(status, 200)
@@ -153,6 +162,29 @@ class TestSemCamera(unittest.TestCase):
         rodar_sem_camera(partida, servidor, EventoContado(120), relogio=lambda: next(tempos))
         self.assertEqual(partida.jogo.peca.linha, 6)  # dois segundos de jogo
         self.assertAlmostEqual(len(publicados), 60, delta=2)
+
+
+class TestJanela(unittest.TestCase):
+    def test_abre_a_janela_e_desce_tudo_ao_fechar(self):
+        from unittest import mock
+
+        from autodoc.gestos import servidor_tetris
+
+        vistos = {}
+
+        def abrir(url, titulo):
+            # Com a janela "aberta", o servidor responde e o jogo anda.
+            with urllib.request.urlopen(url + "api/estado", timeout=5) as resposta:
+                vistos["estado"] = json.loads(resposta.read())
+            vistos["titulo"] = titulo
+            return "nativa"
+
+        with mock.patch("autodoc.web.janela.abrir", side_effect=abrir):
+            self.assertEqual(servidor_tetris.jogar_pelo_teclado(porta=18768), 0)
+        self.assertEqual(vistos["titulo"], "AutoDoc — Tetris")
+        self.assertFalse(vistos["estado"]["camera"])
+        with self.assertRaises(urllib.error.URLError):
+            urllib.request.urlopen("http://127.0.0.1:18768/api/estado", timeout=1)
 
 
 if __name__ == "__main__":
