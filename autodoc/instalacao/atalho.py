@@ -82,6 +82,10 @@ def _criar_macos(destino_base: Path | None) -> Atalho:
         "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": _versao(),
         "NSHighResolutionCapable": True,
+        # Sem esta frase o macOS fecha o app na hora em que ele abre a camera,
+        # sem pergunta nem aviso. Ela e o que aparece no pedido de permissao:
+        # rodando pelo icone, quem pede a camera e o AutoDoc, nao o Terminal.
+        "NSCameraUsageDescription": "O AutoDoc usa a câmera para reconhecer os gestos da sua mão no Tetris e no controle por gestos.",
     }
     (conteudo / "Info.plist").write_bytes(plistlib.dumps(informacoes))
 

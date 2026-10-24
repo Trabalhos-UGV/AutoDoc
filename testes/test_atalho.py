@@ -47,6 +47,8 @@ class TestMacOS(BaseAtalho):
         self.assertEqual(dados["CFBundleIdentifier"], "br.edu.ugv.autodoc")
         self.assertEqual(dados["CFBundleExecutable"], "AutoDoc")
         self.assertEqual(dados["CFBundleShortVersionString"], __version__)
+        # Sem o motivo declarado, o macOS derruba o app ao abrir a camera.
+        self.assertIn("câmera", dados["NSCameraUsageDescription"])
         self.assertTrue(dados["NSHighResolutionCapable"])
 
     def test_o_lancador_e_executavel(self):
