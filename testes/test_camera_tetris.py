@@ -111,11 +111,11 @@ class TestLaco(ComCameraFalsa):
         original = self.partida.passo
         falhas = [ValueError("defeito")]
 
-        def passo(*argumentos):
+        def passo(*argumentos, **opcoes):
             # Falha uma vez, no laco da camera; o do teclado segue normal.
             if falhas:
                 raise falhas.pop()
-            return original(*argumentos)
+            return original(*argumentos, **opcoes)
 
         self.partida.passo = passo
         with self.assertLogs("autodoc.gestos.camera_tetris", "ERROR"):
@@ -128,6 +128,58 @@ class TestLaco(ComCameraFalsa):
         parar.set()
         rodar_com_camera(self.sessao, self.partida, self.servidor, parar, self.cv2)
         self.assertEqual(self.servidor.retratos, [])
+
+
+class TestAvatarNoLaco(ComCameraFalsa):
+    def preparar(self, quadros):
+        self.montar([[("Right", mao(4))]] * quadros, lidos=[True] * quadros + [False] * (camera.FALHAS_TOLERADAS + 1))
+        self.cv2.imencode.return_value = (True, SimpleNamespace(tobytes=lambda: b"\xff\xd8"))
+        self.sessao = camera.Sessao(*self.visao, 0, "teste")
+        self.partida = partida_com_o()
+        self.partida.avatar = True
+        self.servidor = ServidorFalso()
+
+    def test_com_avatar_vai_a_pose_e_nenhuma_imagem(self):
+        self.preparar(4)
+        rastreador = mock.Mock(calcular=mock.Mock(return_value={"cabeca": "pose"}))
+        rodar_com_camera(self.sessao, self.partida, self.servidor, EventoContado(1), self.cv2, rastreador=rastreador)
+        self.assertEqual(self.servidor.retratos[0]["pose"], {"cabeca": "pose"})
+        self.assertEqual(self.servidor.imagens, [])  # o rosto nunca sai
+        self.assertIs(rastreador.calcular.call_args.args[0], self.sessao.rgb_crua)
+
+    def test_avatar_que_falha_volta_para_a_mascara(self):
+        self.preparar(4)
+        rastreador = mock.Mock(calcular=mock.Mock(side_effect=RuntimeError("modelo quebrado")))
+        mascara = mock.Mock(aplicar=mock.Mock(side_effect=lambda imagem, personagem, agora: imagem))
+        with self.assertLogs("autodoc.gestos.camera_tetris", "ERROR"):
+            rodar_com_camera(self.sessao, self.partida, self.servidor, EventoContado(1), self.cv2, mascara=mascara, rastreador=rastreador)
+        self.assertEqual(rastreador.calcular.call_count, 1)  # desligou na primeira falha
+        self.assertGreater(len(self.servidor.imagens), 0)
+        mascara.aplicar.assert_called()
+
+
+class TestJanelaComAvatar(unittest.TestCase):
+    def test_avatar_ligado_e_sem_escolha_com_um_personagem(self):
+        visto = {}
+
+        def abrir(url, titulo):
+            with urllib.request.urlopen(url + "api/estado", timeout=5) as resposta:
+                visto.update(json.loads(resposta.read()))
+            return "nativa"
+
+        rastreador = mock.Mock(calcular=mock.Mock(return_value={"pose": 1}))
+        with (
+            mock.patch.object(camera_tetris, "importar_visao", return_value=(mock.MagicMock(), None, None, None)),
+            mock.patch.object(camera_tetris, "Sessao", SessaoFalsa),
+            mock.patch.object(camera_tetris, "abrir_mascara", return_value=None),
+            mock.patch.object(camera_tetris, "abrir_rastreador", return_value=rastreador),
+            mock.patch("autodoc.web.janela.abrir", side_effect=abrir),
+        ):
+            camera_tetris.jogar_com_camera(porta=18798)
+        self.assertTrue(visto["avatar"])
+        self.assertEqual(visto["personagem"], "caramelo")
+        self.assertFalse(visto["escolhendo"])
+        rastreador.fechar.assert_called_once_with()
 
 
 class TestAbrirMascara(unittest.TestCase):
@@ -155,6 +207,8 @@ class SessaoFalsa:
     def __init__(self, cv2, mediapipe, BaseOptions, vision, indice, titulo):
         self.indice, self.titulo = indice, titulo
         self.fechada = False
+        self.rgb_crua = "rgb"
+        self.detector = SimpleNamespace(mundo=[])
         SessaoFalsa.abertas.append(self)
 
     def __enter__(self):
@@ -188,6 +242,7 @@ class TestJanela(unittest.TestCase):
             mock.patch.object(camera_tetris, "importar_visao", return_value=(cv2, None, None, None)),
             mock.patch.object(camera_tetris, "Sessao", SessaoFalsa),
             mock.patch.object(camera_tetris, "abrir_mascara", return_value=mascara),
+            mock.patch.object(camera_tetris, "abrir_rastreador", return_value=None),
             mock.patch("autodoc.web.janela.abrir", side_effect=abrir),
         ):
             self.assertEqual(camera_tetris.jogar_com_camera(camera=2, porta=18788), 0)

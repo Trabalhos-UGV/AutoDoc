@@ -12,8 +12,10 @@ tambem precisa da principal. Entao a ordem e: a thread principal abre a
 janela ate ela fechar. Ler quadros de uma camera ja aberta funciona de qualquer
 thread.
 
-**O rosto e coberto pelo personagem escolhido** (`mascara.py`) antes de a
-imagem ir para a tela.
+**Com o avatar 3D, a imagem da camera nem sai daqui.** O rosto, o corpo e as
+maos viram a pose do personagem (`rastreador.py`, `pose_avatar.py`), e e so
+ela que vai para a tela. Sem o avatar — modelos sem baixar, ou uma tela sem
+WebGL —, a imagem sai com o rosto coberto pelo emoji escolhido (`mascara.py`).
 
 **Se a camera parar no meio, o jogo nao para.** O laco cai para o modo de
 teclado e a tela troca sozinha a lista de gestos pela de teclas. Numa
@@ -28,7 +30,8 @@ import threading
 from autodoc.gestos import GestosIndisponiveis
 from autodoc.gestos.camera import Sessao, importar_visao, obter_modelo, pasta_cache
 from autodoc.gestos.mascara import URL_MODELO_ROSTO, DetectorDeRosto, Mascara
-from autodoc.gestos.personagens import NOMES
+from autodoc.gestos.personagens import AVATARES, NOMES, NOMES_AVATARES
+from autodoc.gestos.rastreador import Rastreador, abrir_rastreador
 from autodoc.gestos.reconhecimento import Mao, separar_maos
 from autodoc.gestos.servidor_tetris import PORTA_TETRIS, Partida, ServidorTetris, rodar_sem_camera
 
@@ -68,6 +71,7 @@ def rodar_com_camera(
     cv2,
     destro: bool = True,
     mascara: Mascara | None = None,
+    rastreador: Rastreador | None = None,
 ) -> None:
     mao = Mao()
     mascara_falhou = False
@@ -76,9 +80,18 @@ def rodar_com_camera(
             if parar.is_set():
                 return
             principal, _ = separar_maos(maos, destro)
-            partida.passo(agora, mao.atualizar(principal), principal, maos_para_tela(maos, principal))
+            pose = None
+            if partida.avatar and rastreador is not None:
+                try:
+                    pose = rastreador.calcular(sessao.rgb_crua, sessao.detector.mundo, agora)
+                except Exception:
+                    # O avatar falhar nao pode parar o jogo: segue com a mascara.
+                    logger.exception("o avatar 3D falhou; o jogo segue com a mascara")
+                    partida.desligar_avatar()
+            partida.passo(agora, mao.atualizar(principal), principal, maos_para_tela(maos, principal), pose=pose)
             servidor.publicar(partida.retrato())
-            if numero % QUADROS_POR_IMAGEM != 0:
+            # Com o avatar, nenhuma imagem da camera vai para a tela.
+            if partida.avatar or numero % QUADROS_POR_IMAGEM != 0:
                 continue
             if mascara is not None:
                 try:
@@ -111,16 +124,23 @@ def jogar_com_camera(camera: int = 0, destro: bool = True, porta: int = PORTA_TE
 
     cv2, mediapipe, BaseOptions, vision = importar_visao()
     with Sessao(cv2, mediapipe, BaseOptions, vision, camera, "AutoDoc - Tetris") as sessao:
+        # A mascara abre mesmo com o avatar: e ela que assume se a tela nao
+        # conseguir desenhar 3D.
         mascara = abrir_mascara(cv2, mediapipe, BaseOptions, vision)
+        rastreador = abrir_rastreador(mediapipe, BaseOptions, vision)
         partida = Partida()
         partida.camera = True
-        partida.personagem = NOMES[0]
-        partida.escolhendo = True
+        partida.avatar = rastreador is not None
+        partida.personagem = NOMES_AVATARES[0] if partida.avatar else NOMES[0]
+        # Com um personagem 3D so, nao ha o que escolher.
+        partida.escolhendo = not partida.avatar or len(AVATARES) > 1
         servidor = ServidorTetris(partida, porta)
         url = servidor.iniciar()
         parar = threading.Event()
         laco = threading.Thread(
-            target=rodar_com_camera, args=(sessao, partida, servidor, parar, cv2, destro, mascara), daemon=True
+            target=rodar_com_camera,
+            args=(sessao, partida, servidor, parar, cv2, destro, mascara, rastreador),
+            daemon=True,
         )
         laco.start()
         try:
@@ -131,8 +151,9 @@ def jogar_com_camera(camera: int = 0, destro: bool = True, porta: int = PORTA_TE
             # de uma leitura derruba o processo em alguns sistemas.
             laco.join(timeout=2)
             servidor.parar()
-            if mascara is not None:
-                mascara.fechar()
+            for aberto in (mascara, rastreador):
+                if aberto is not None:
+                    aberto.fechar()
     return 0
 
 
