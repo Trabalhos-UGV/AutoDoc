@@ -95,7 +95,9 @@ def importar_visao():
         import mediapipe
         from mediapipe.tasks.python import BaseOptions, vision
     except ImportError as erro:
-        raise GestosIndisponiveis(f"falta {erro.name}; rode: {INSTALAR}") from erro
+        # Nem todo ImportError diz o nome do que faltou: o do OpenCV sem numpy
+        # vem sem nome, e a mensagem saia "falta None".
+        raise GestosIndisponiveis(f"falta {erro.name or erro}; rode: {INSTALAR}") from erro
     return cv2, mediapipe, BaseOptions, vision
 
 

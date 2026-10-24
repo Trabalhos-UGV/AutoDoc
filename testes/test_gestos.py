@@ -536,6 +536,19 @@ class TestDependencias(unittest.TestCase):
             with self.assertRaisesRegex(GestosIndisponiveis, "pyautogui"):
                 camera.importar_mouse()
 
+    def test_erro_de_importacao_sem_nome(self):
+        """O OpenCV sem numpy levanta ImportError sem nome; a mensagem saia "falta None"."""
+        importar = __import__
+
+        def falhar(nome, *argumentos, **opcoes):
+            if nome == "cv2":
+                raise ImportError("OpenCV bindings requires numpy")
+            return importar(nome, *argumentos, **opcoes)
+
+        with mock.patch("builtins.__import__", side_effect=falhar):
+            with self.assertRaisesRegex(GestosIndisponiveis, "falta OpenCV bindings requires numpy"):
+                camera.importar_visao()
+
     def test_com_dependencias(self):
         falsos = {nome: mock.MagicMock() for nome in ("cv2", "mediapipe", "pyautogui", "mediapipe.tasks", "mediapipe.tasks.python")}
         with mock.patch.dict(sys.modules, falsos):
