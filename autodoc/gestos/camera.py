@@ -148,8 +148,8 @@ class Sessao:
         self.captura = cv2.VideoCapture(camera)
         if not self.captura.isOpened():
             raise GestosIndisponiveis(
-                f"nao consegui abrir a camera {camera}. Confira se outro programa a esta usando"
-                + (" e se o aplicativo tem acesso em Ajustes > Privacidade > Camera" if sys.platform == "darwin" else "")
+                f"não consegui abrir a câmera {camera}. Confira se outro programa está usando ela"
+                + (" e se o AutoDoc tem acesso em Ajustes do Sistema > Privacidade e Segurança > Câmera" if sys.platform == "darwin" else "")
             )
         try:
             self.detector = Detector(mediapipe, BaseOptions, vision, obter_modelo())

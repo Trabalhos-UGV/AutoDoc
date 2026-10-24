@@ -623,7 +623,7 @@ class TestSessao(ComCameraFalsa):
 
     def test_camera_que_nao_abre(self):
         self.montar([], aberta=False)
-        with self.assertRaisesRegex(GestosIndisponiveis, "camera 0"):
+        with self.assertRaisesRegex(GestosIndisponiveis, "câmera 0"):
             self.sessao()
 
     def test_modelo_que_falha_solta_a_camera(self):
