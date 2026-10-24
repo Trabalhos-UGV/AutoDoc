@@ -17,6 +17,9 @@
 
   --tt-campo: var(--ad-console);
   --tt-grade: rgba(241, 238, 230, 0.035);
+  /* A coluna para onde a mão aponta: tem que se ver sem competir com as peças. */
+  --tt-mira: rgba(240, 193, 42, 0.06);
+  --tt-mira-linha: rgba(240, 193, 42, 0.55);
   --tt-lateral: 268px;
 }
 

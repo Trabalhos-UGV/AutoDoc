@@ -9,6 +9,11 @@
    pisca antes de sumir, o despencar deixa rastro. Cada animação nasce de um
    evento do retrato ("linhas", "travou", "despencou"...) e tem duração fixa.
 
+   Com a câmera ligada, a imagem dela chega por /api/camera.mjpg num <img>
+   comum, e o esqueleto da mão é desenhado por cima, num canvas do mesmo
+   tamanho, com os pontos que vêm no retrato. No tabuleiro, uma faixa marca a
+   coluna para onde a mão aponta: a peça está indo para lá.
+
    O teclado manda cada tecla para /api/tecla. É o mesmo caminho que o gesto
    usa por dentro, então jogar pelo teclado testa o jogo de verdade. */
 
@@ -30,6 +35,7 @@ const SEM_REPETICAO = new Set(['ArrowUp', ' ', 'x', 'z', 'c', 'p', 'r']);
 const el = {
   modo: document.querySelector('[data-modo]'),
   modoTexto: document.querySelector('[data-modo-texto]'),
+  camera: document.querySelector('[data-camera]'),
   video: document.querySelector('[data-camera-video]'),
   maos: document.querySelector('[data-camera-maos]'),
   cameraVazia: document.querySelector('[data-camera-vazia]'),
@@ -73,6 +79,10 @@ function lerCores() {
   for (const tipo of TIPOS) cores[tipo] = estilo.getPropertyValue(`--tt-${tipo}`).trim();
   cores.campo = estilo.getPropertyValue('--tt-campo').trim();
   cores.grade = estilo.getPropertyValue('--tt-grade').trim();
+  cores.principal = estilo.getPropertyValue('--ad-verde').trim();
+  cores.secundaria = estilo.getPropertyValue('--ad-fraco').trim();
+  cores.mira = estilo.getPropertyValue('--tt-mira').trim();
+  cores.miraLinha = estilo.getPropertyValue('--tt-mira-linha').trim();
 }
 
 /** Mistura a cor com branco (f > 0) ou preto (f < 0). Aceita #rgb e #rrggbb. */
@@ -167,6 +177,15 @@ function desenharTabuleiro(agora) {
   }
   ctx.stroke();
 
+  // A mira: a coluna para onde a mão está apontando.
+  const alvo = atual.controle.alvo;
+  if (atual.camera && alvo !== null && atual.situacao === 'jogando') {
+    ctx.fillStyle = cores.mira;
+    ctx.fillRect(alvo * t, 0, t, altura);
+    ctx.fillStyle = cores.miraLinha;
+    ctx.fillRect(alvo * t, altura - 3, t, 3);
+  }
+
   // Enquanto a linha completa pisca, o tabuleiro mostrado é o de antes dela sumir.
   const piscando = animacoes.find((a) => a.tipo === 'linhas');
   const quadro = piscando ? piscando.quadro : atual.tabuleiro;
@@ -229,6 +248,33 @@ function desenharTabuleiro(agora) {
   animacoes = animacoes.filter((a) => agora - a.inicio < DURACAO[a.tipo]);
 }
 
+/** O esqueleto das mãos por cima da imagem da câmera. */
+function desenharMaos() {
+  const { ctx, largura, altura } = preparar(el.maos);
+  ctx.clearRect(0, 0, largura, altura);
+  if (!atual.camera) return;
+
+  for (const mao of atual.maos) {
+    const pontos = mao.pontos.map(([x, y]) => [x * largura, y * altura]);
+    ctx.strokeStyle = 'rgba(245, 242, 233, 0.7)';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const [a, b] of atual.conexoes) {
+      ctx.moveTo(...pontos[a]);
+      ctx.lineTo(...pontos[b]);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = mao.principal ? cores.principal : cores.secundaria;
+    for (const [x, y] of pontos) {
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
 /** Uma peça sozinha, centralizada no canvas: a fila e a guardada. */
 function desenharPeca(canvas, tipo) {
   const { ctx, largura, altura } = preparar(canvas);
@@ -268,6 +314,16 @@ function atualizarPainel(retrato) {
   el.guardada.toggleAttribute('data-usada', !retrato.pode_guardar);
 
   const comCamera = retrato.camera;
+  // A imagem só é pedida com a câmera ligada, e é largada se ela cair: sem o
+  // src, o navegador fecha a conexão do MJPEG.
+  if (comCamera && !el.video.getAttribute('src')) el.video.src = 'api/camera.mjpg';
+  if (!comCamera && el.video.getAttribute('src')) el.video.removeAttribute('src');
+  el.video.hidden = !comCamera;
+  if (retrato.camera_tamanho) {
+    const [larguraCamera, alturaCamera] = retrato.camera_tamanho;
+    el.camera.style.aspectRatio = `${larguraCamera} / ${alturaCamera}`;
+  }
+
   el.modo.dataset.estado = comCamera ? 'camera' : 'teclado';
   el.modoTexto.textContent = comCamera ? 'câmera ligada' : 'jogando pelo teclado';
   el.comandosGestos.hidden = !comCamera;
@@ -387,6 +443,7 @@ function receber(retrato) {
 function quadro(agora) {
   if (atual) {
     desenharTabuleiro(agora);
+    desenharMaos();
     // O placar conta até o valor novo em vez de saltar.
     const alvo = atual.pontos;
     pontosExibidos = Math.abs(alvo - pontosExibidos) < 1 ? alvo : pontosExibidos + (alvo - pontosExibidos) * 0.2;
