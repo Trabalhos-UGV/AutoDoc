@@ -114,6 +114,28 @@ class ServidorHTTP(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def abrir_porta(manipulador, preferida: int) -> tuple[ServidorHTTP, int]:
+    """Abre a porta preferida, ou a proxima livre. Devolve o servidor e a porta.
+
+    Abrir o AutoDoc com uma janela dele ja aberta derrubava o programa com
+    "Address already in use" — um traceback no terminal para quem so clicou
+    duas vezes no icone. Achar outra porta e o comportamento util: o
+    endereco e detalhe interno, ninguem digita esse numero.
+    """
+    for porta in range(preferida, preferida + TENTATIVAS_DE_PORTA):
+        try:
+            http = ServidorHTTP(("127.0.0.1", porta), manipulador)
+        except OSError as erro:
+            if erro.errno != errno.EADDRINUSE:
+                raise
+            continue
+        if porta != preferida:
+            logger.info("porta %d ocupada; usando a %d", preferida, porta)
+        return http, porta
+
+    raise OSError(f"nenhuma porta livre entre {preferida} e {preferida + TENTATIVAS_DE_PORTA - 1}")
+
+
 class Servidor:
     """Sobe o servidor HTTP e o monitoramento, e liga um no outro."""
 
@@ -272,31 +294,8 @@ class Servidor:
     # ------------------------------------------------------------ ciclo
 
     def _escutar(self) -> ServidorHTTP:
-        """Abre a porta preferida, ou a proxima livre.
-
-        Abrir o AutoDoc com uma janela dele ja aberta derrubava o programa com
-        "Address already in use" — um traceback no terminal para quem so clicou
-        duas vezes no icone. Achar outra porta e o comportamento util: o
-        endereco e detalhe interno, ninguem digita esse numero.
-        """
-        manipulador = partial(Rotas, servidor=self)
-
-        for porta in range(self.porta, self.porta + TENTATIVAS_DE_PORTA):
-            try:
-                http = ServidorHTTP(("127.0.0.1", porta), manipulador)
-            except OSError as erro:
-                if erro.errno != errno.EADDRINUSE:
-                    raise
-                continue
-            if porta != self.porta:
-                logger.info("porta %d ocupada; usando a %d", self.porta, porta)
-            self.porta = porta
-            return http
-
-        raise OSError(
-            f"nenhuma porta livre entre {self.porta} e "
-            f"{self.porta + TENTATIVAS_DE_PORTA - 1}"
-        )
+        http, self.porta = abrir_porta(partial(Rotas, servidor=self), self.porta)
+        return http
 
     def iniciar(self) -> str:
         """Sobe o HTTP e o observador. Devolve a URL para abrir."""
