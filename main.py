@@ -7,6 +7,7 @@ Uso:
     python main.py listar             # ultimos documentos processados
     python main.py gestos             # controla o mouse com a mao, pela webcam
     python main.py gestos --quadro    # quadro de desenho para treinar os gestos
+    python main.py gestos --tetris    # Tetris comandado pela mao
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from autodoc.catalogo import Catalogo
 from autodoc.config import Config
 from autodoc.gestos import GestosIndisponiveis
 from autodoc.gestos import camera as camera_gestos
+from autodoc.gestos import camera_tetris, servidor_tetris
 from autodoc.gestos import quadro as quadro_gestos
 from autodoc.monitor import monitorar, processar_pendentes
 from autodoc.pipeline import Pipeline
@@ -47,7 +49,10 @@ def montar_parser() -> argparse.ArgumentParser:
     gestos = subcomandos.add_parser("gestos", help="controla o mouse com gestos da mao, pela webcam")
     gestos.add_argument("--camera", type=int, default=0, help="indice da webcam (padrao 0)")
     gestos.add_argument("--canhoto", action="store_true", help="a mao esquerda move o cursor")
-    gestos.add_argument("--quadro", action="store_true", help="abre o quadro de desenho em vez de mexer no mouse")
+    telas = gestos.add_mutually_exclusive_group()
+    telas.add_argument("--quadro", action="store_true", help="abre o quadro de desenho em vez de mexer no mouse")
+    telas.add_argument("--tetris", action="store_true", help="joga Tetris com a mao")
+    gestos.add_argument("--sem-camera", action="store_true", help="com --tetris: joga so pelo teclado")
 
     return parser
 
@@ -81,10 +86,15 @@ def abrir_aplicativo(config: Config, catalogo: Catalogo, porta: int) -> int:
     return 0
 
 
-def controlar_por_gestos(camera: int, destro: bool, quadro: bool = False) -> int:
-    executar = quadro_gestos.executar_quadro if quadro else camera_gestos.executar
+def controlar_por_gestos(camera: int, destro: bool, modo: str = "mouse") -> int:
+    executores = {
+        "mouse": camera_gestos.executar,
+        "quadro": quadro_gestos.executar_quadro,
+        "tetris": camera_tetris.jogar_com_camera,
+        "tetris sem camera": lambda _camera, _destro: servidor_tetris.jogar_pelo_teclado(),
+    }
     try:
-        return executar(camera, destro)
+        return executores[modo](camera, destro)
     except GestosIndisponiveis as erro:
         print(f"gestos indisponiveis: {erro}", file=sys.stderr)
         return 1
@@ -93,12 +103,19 @@ def controlar_por_gestos(camera: int, destro: bool, quadro: bool = False) -> int
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    args = montar_parser().parse_args(argv)
+    parser = montar_parser()
+    args = parser.parse_args(argv)
 
     if args.comando == "gestos":
+        if args.sem_camera and not args.tetris:
+            parser.error("--sem-camera so vale com --tetris")
         # Nao toca em pasta nem catalogo: o controle por gestos nao tem nada a
         # ver com os documentos, e nao deve criar pasta so por ter sido aberto.
-        return controlar_por_gestos(args.camera, destro=not args.canhoto, quadro=args.quadro)
+        if args.tetris:
+            modo = "tetris sem camera" if args.sem_camera else "tetris"
+        else:
+            modo = "quadro" if args.quadro else "mouse"
+        return controlar_por_gestos(args.camera, destro=not args.canhoto, modo=modo)
 
     config = Config.carregar()
     config.preparar_pastas()

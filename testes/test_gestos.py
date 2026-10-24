@@ -810,6 +810,19 @@ class TestComando(unittest.TestCase):
             self.assertEqual(main.main(["gestos", "--quadro"]), 0)
         executar.assert_called_once_with(0, True)
 
+    def test_tetris_com_e_sem_camera(self):
+        with mock.patch.object(main.camera_tetris, "jogar_com_camera", return_value=0) as com_camera:
+            self.assertEqual(main.main(["gestos", "--tetris", "--canhoto"]), 0)
+        com_camera.assert_called_once_with(0, False)
+        with mock.patch.object(main.servidor_tetris, "jogar_pelo_teclado", return_value=0) as pelo_teclado:
+            self.assertEqual(main.main(["gestos", "--tetris", "--sem-camera"]), 0)
+        pelo_teclado.assert_called_once_with()
+
+    def test_opcoes_que_nao_combinam(self):
+        for argumentos in (["gestos", "--tetris", "--quadro"], ["gestos", "--sem-camera"]):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main.main(argumentos)
+
     def test_gestos_indisponiveis(self):
         erro = GestosIndisponiveis("falta cv2")
         with (
