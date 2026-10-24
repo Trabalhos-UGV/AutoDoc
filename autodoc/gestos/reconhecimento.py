@@ -25,6 +25,13 @@ comparava so a altura dos pontos, e bastava inclinar a mao para errar.
 
 **A pinca tem histerese.** Fecha abaixo de um limiar e so abre acima de outro,
 maior. Com um limiar so, a medida oscilando na fronteira picotava o traco.
+
+**Vale o dedo claramente mais perto.** As pontas do indicador e do medio ficam a
+dois centimetros uma da outra, e para chegar ao medio o polegar passa pelo
+indicador. Na primeira versao a histerese segurava essa pinca de passagem: o
+polegar colado no medio continuava "perto o bastante" do indicador, e guardar
+a peca no Tetris nunca funcionava. Agora uma pinca so vale — e so se mantem —
+enquanto o outro dedo nao estiver bem mais perto.
 """
 
 from __future__ import annotations
@@ -65,6 +72,9 @@ DEDOS = ((8, 6), (12, 10), (16, 14), (20, 18))
 # Pinca, em fracao do tamanho da palma.
 PINCA_FECHA = 0.25
 PINCA_ABRE = 0.40
+
+# Para um dedo vencer, o polegar precisa estar a menos disto da distancia ate o outro.
+VANTAGEM = 0.7
 
 # Folga para o dedo contar como aberto: a ponta precisa passar da junta.
 FOLGA_DEDO = 1.1
@@ -107,22 +117,27 @@ def centro_da_palma(pontos: Sequence[Ponto]) -> tuple[float, float]:
     )
 
 
+def _vence(este: float, outro: float) -> bool:
+    """Se o polegar esta encostado neste dedo, e claramente nao no outro."""
+    return este < PINCA_FECHA and este < outro * VANTAGEM
+
+
 def classificar(pontos: Sequence[Ponto], anterior: Gesto = Gesto.MOVER) -> Gesto:
     """O gesto de um quadro. `anterior` decide de que lado da histerese esta."""
     indicador, medio = aberturas(pontos)
 
-    if anterior == Gesto.PINCA_INDICADOR and indicador < PINCA_ABRE:
+    if anterior == Gesto.PINCA_INDICADOR and indicador < PINCA_ABRE and not _vence(medio, indicador):
         return Gesto.PINCA_INDICADOR
-    if anterior == Gesto.PINCA_MEDIO and medio < PINCA_ABRE:
+    if anterior == Gesto.PINCA_MEDIO and medio < PINCA_ABRE and not _vence(indicador, medio):
         return Gesto.PINCA_MEDIO
 
     if not any(dedos_abertos(pontos)):
         return Gesto.PUNHO
 
-    # Na pinca com o medio o indicador tambem fica perto do polegar; vale o
-    # mais perto dos dois.
-    if min(indicador, medio) < PINCA_FECHA:
-        return Gesto.PINCA_INDICADOR if indicador <= medio else Gesto.PINCA_MEDIO
+    if _vence(indicador, medio):
+        return Gesto.PINCA_INDICADOR
+    if _vence(medio, indicador):
+        return Gesto.PINCA_MEDIO
     return Gesto.MOVER
 
 

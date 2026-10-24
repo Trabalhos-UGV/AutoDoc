@@ -94,6 +94,18 @@ class TestClassificar(unittest.TestCase):
         pontos[4] = ponto(0.465, 0.4)
         self.assertEqual(classificar(pontos), Gesto.PINCA_MEDIO)
 
+    def test_vale_o_dedo_claramente_mais_perto(self):
+        # Entre os dois, sem vantagem clara: nao e pinca de nenhum.
+        pontos = montar_mao()
+        pontos[4] = ponto(0.46, 0.39)
+        self.assertEqual(classificar(pontos), Gesto.MOVER)
+
+    def test_pinca_do_indicador_vira_do_medio(self):
+        """Colado no medio, o polegar ainda esta perto do indicador: antes, a histerese o prendia la."""
+        pontos = montar_mao(pinca="medio")
+        self.assertEqual(classificar(pontos, Gesto.PINCA_INDICADOR), Gesto.PINCA_MEDIO)
+        self.assertEqual(classificar(montar_mao(pinca="indicador"), Gesto.PINCA_MEDIO), Gesto.PINCA_INDICADOR)
+
     def test_histerese(self):
         meio_termo = (PINCA_FECHA + PINCA_ABRE) / 2
         for dedo, gesto in (("indicador", Gesto.PINCA_INDICADOR), ("medio", Gesto.PINCA_MEDIO)):
@@ -280,6 +292,11 @@ class TestControlador(unittest.TestCase):
         self.quadro(Gesto.PINCA_INDICADOR)
         self.quadro(Gesto.PINCA_INDICADOR, montar_mao(y=0.05))
         self.mouse.mouseDown.assert_called_once()
+
+    def test_pinca_que_vira_do_medio_nao_da_clique_esquerdo(self):
+        self.quadro(Gesto.PINCA_INDICADOR)
+        self.quadro(Gesto.PINCA_MEDIO)
+        self.mouse.click.assert_called_once_with(button="right")
 
     def test_pinca_do_medio_e_clique_direito_uma_vez(self):
         for _ in range(5):
