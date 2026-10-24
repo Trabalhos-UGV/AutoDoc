@@ -66,23 +66,26 @@ def pasta_cache(plataforma: str | None = None) -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "autodoc"
 
 
-def obter_modelo(destino: Path | None = None) -> Path:
-    """O caminho do modelo, baixando-o se ainda nao estiver no cache."""
+def obter_modelo(destino: Path | None = None, url: str = URL_MODELO, descricao: str = "o modelo da mao (7,8 MB)") -> Path:
+    """O caminho do modelo, baixando-o se ainda nao estiver no cache.
+
+    O padrao e o da mao; a mascara do Tetris usa o mesmo caminho para o do rosto.
+    """
     destino = destino or pasta_cache() / "hand_landmarker.task"
     if destino.exists():
         return destino
 
     destino.parent.mkdir(parents=True, exist_ok=True)
     parcial = destino.with_suffix(".parcial")
-    print("baixando o modelo da mao (7,8 MB, so na primeira vez)...")
+    print(f"baixando {descricao}, so na primeira vez...")
     try:
         if shutil.which("curl"):
-            subprocess.run(["curl", "-fsSL", "-o", str(parcial), URL_MODELO], check=True)
+            subprocess.run(["curl", "-fsSL", "-o", str(parcial), url], check=True)
         else:
-            urllib.request.urlretrieve(URL_MODELO, parcial)
+            urllib.request.urlretrieve(url, parcial)
     except (OSError, subprocess.CalledProcessError) as erro:
         parcial.unlink(missing_ok=True)
-        raise GestosIndisponiveis(f"nao consegui baixar o modelo da mao: {erro}") from erro
+        raise GestosIndisponiveis(f"nao consegui baixar {descricao}: {erro}") from erro
     # Renomear so no fim: download interrompido nao deixa modelo pela metade.
     parcial.replace(destino)
     return destino
