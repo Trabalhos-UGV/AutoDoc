@@ -15,6 +15,11 @@ mediapipe>=0.10.30
 # Mover, clicar e rolar. No macOS traz o pyobjc junto.
 pyautogui>=0.9.54
 
+# Pedido de permissao da camera no macOS, esperando a resposta da pessoa. Sem
+# ele o OpenCV pede sozinho, mas nao espera: o jogo fecha e precisa ser aberto
+# de novo depois de permitir. A versao acompanha a do PyObjC do PyAutoGUI.
+pyobjc-framework-AVFoundation; sys_platform == "darwin"
+
 # Volume no Windows. A partir desta versao `GetSpeakers()` devolve o aparelho
 # ja com `EndpointVolume`.
 pycaw>=20240210; sys_platform == "win32"

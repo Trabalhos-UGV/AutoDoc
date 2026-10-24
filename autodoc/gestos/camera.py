@@ -34,7 +34,7 @@ from pathlib import Path
 from autodoc.gestos import GestosIndisponiveis
 from autodoc.gestos.controle import Controlador
 from autodoc.gestos.reconhecimento import Gesto, Mao, aberturas, espelhar, separar_maos
-from autodoc.gestos.sistema import sistema_atual
+from autodoc.gestos.sistema import RecursoIndisponivel, sistema_atual
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +147,20 @@ class Sessao:
     def __init__(self, cv2, mediapipe, BaseOptions, vision, camera: int, titulo: str) -> None:
         self.cv2 = cv2
         self.titulo = titulo
+        sistema = sistema_atual(None)
+        try:
+            sistema.preparar_camera()
+        except RecursoIndisponivel as erro:
+            raise GestosIndisponiveis(str(erro)) from erro
+
         self.captura = cv2.VideoCapture(camera)
+        if not self.captura.isOpened() and sys.platform == "win32":
+            # O OpenCV abre pelo Media Foundation no Windows, e algumas webcams
+            # so respondem pelo DirectShow.
+            self.captura = cv2.VideoCapture(camera, cv2.CAP_DSHOW)
         if not self.captura.isOpened():
             raise GestosIndisponiveis(
-                f"não consegui abrir a câmera {camera}. Confira se outro programa está usando ela"
-                + (" e se o AutoDoc tem acesso em Ajustes do Sistema > Privacidade e Segurança > Câmera" if sys.platform == "darwin" else "")
+                f"não consegui abrir a câmera {camera}. Confira se outro programa está usando ela" + sistema.dica_camera()
             )
         try:
             self.detector = Detector(mediapipe, BaseOptions, vision, obter_modelo())
