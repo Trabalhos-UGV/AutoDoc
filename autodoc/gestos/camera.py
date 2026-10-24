@@ -127,6 +127,9 @@ class Detector:
         )
         self._detector = vision.HandLandmarker.create_from_options(opcoes)
         self._ultimo_ms = -1
+        # Os mesmos pontos em metros, na imagem crua, do ultimo quadro: o
+        # avatar 3D precisa da mao em tres dimensoes, nao so na tela.
+        self.mundo: list[tuple[str, list]] = []
 
     def detectar(self, quadro_rgb) -> list[tuple[str, list]]:
         """As maos de um quadro NAO espelhado, com os pontos ja espelhados."""
@@ -135,6 +138,10 @@ class Detector:
         self._ultimo_ms = agora
         imagem = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=quadro_rgb)
         resultado = self._detector.detect_for_video(imagem, agora)
+        self.mundo = [
+            (lado[0].category_name, pontos)
+            for lado, pontos in zip(resultado.handedness, getattr(resultado, "hand_world_landmarks", []))
+        ]
         return [
             (lado[0].category_name, espelhar(pontos))
             for lado, pontos in zip(resultado.handedness, resultado.hand_landmarks)
@@ -171,6 +178,9 @@ class Sessao:
             self.captura.release()
             raise
         self.conexoes = self.detector.conexoes
+        # A imagem crua (nao espelhada, em RGB) do ultimo quadro, para quem mais
+        # precisar detectar nela — o rosto e o corpo do avatar.
+        self.rgb_crua = None
 
     def __enter__(self) -> "Sessao":
         return self
@@ -191,7 +201,8 @@ class Sessao:
                     raise GestosIndisponiveis("a camera parou de mandar imagem")
                 continue
             falhas = 0
-            maos = self.detector.detectar(self.cv2.cvtColor(quadro, self.cv2.COLOR_BGR2RGB))
+            self.rgb_crua = self.cv2.cvtColor(quadro, self.cv2.COLOR_BGR2RGB)
+            maos = self.detector.detectar(self.rgb_crua)
             yield self.cv2.flip(quadro, 1), maos, time.monotonic()
 
     def mostrar(self, imagem) -> int | None:

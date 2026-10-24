@@ -838,6 +838,18 @@ class TestSessao(ComCameraFalsa):
         self.assertTrue(self.webcam.solta)
         self.detector.close.assert_called_once_with()
 
+    def test_guarda_a_imagem_crua_e_as_maos_em_metros(self):
+        direita = montar_mao()
+        self.montar([[("Right", direita)]])
+        self.detector.detect_for_video.side_effect = None
+        self.detector.detect_for_video.return_value = SimpleNamespace(
+            handedness=[[Rotulo("Right")]], hand_landmarks=[direita], hand_world_landmarks=["mundo"]
+        )
+        with self.sessao() as sessao:
+            next(sessao.quadros())
+        self.assertIs(sessao.rgb_crua, self.cv2.cvtColor.return_value)
+        self.assertEqual(sessao.detector.mundo, [("Right", "mundo")])
+
     def test_camera_que_para_de_mandar_imagem(self):
         self.montar([], lidos=[False] * (camera.FALHAS_TOLERADAS + 1))
         with self.sessao() as sessao:
