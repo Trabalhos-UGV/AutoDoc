@@ -94,7 +94,9 @@ class Controlador:
         """O gesto da mao principal neste quadro."""
         anterior, self.gesto = self.gesto, gesto
         if anterior == Gesto.PINCA_INDICADOR and gesto != Gesto.PINCA_INDICADOR:
-            self._soltar_pinca(agora)
+            # Virar pinca do medio e o polegar que passou pelo indicador a
+            # caminho do medio: nao foi clique esquerdo, e sim o direito.
+            self._soltar_pinca(agora, clicar=gesto != Gesto.PINCA_MEDIO)
         if gesto != Gesto.PUNHO:
             self._rolagem.soltar()
         if gesto == Gesto.NENHUM:
@@ -150,10 +152,12 @@ class Controlador:
         # ser um evento de arrasto, senao o sistema nao arrasta nada.
         self.mouse.dragTo(x, y, button="left", mouseDownUp=False)
 
-    def _soltar_pinca(self, agora: float) -> None:
+    def _soltar_pinca(self, agora: float, clicar: bool = True) -> None:
         if self._arrastando:
             self._arrastando = False
             self.mouse.mouseUp(button="left")
+            return
+        if not clicar:
             return
         if agora - self._ultimo_clique < CLIQUE_DUPLO:
             self.sistema.clique_duplo(*self._pinca_origem)

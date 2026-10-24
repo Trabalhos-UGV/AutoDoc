@@ -4,7 +4,7 @@ E aqui que se decide se o jogo e bom de jogar com a mao. As regras sao do
 `tetris.py`; isto so traduz.
 
     mao para os lados      a peca vai para a coluna da mao
-    pinca indicador        gira
+    pinca indicador        gira, ao soltar
     pinca medio            guarda a peca
     punho                  despenca
     mao no terco de baixo  cai mais rapido
@@ -20,9 +20,15 @@ um terco de segundo — rapido o bastante para parecer que segue a mao.
 tremida faria a peca pular de uma para a outra. A coluna so troca depois de a
 mao entrar 30% na vizinha, e so volta depois de entrar 30% de volta.
 
-**Comandos so na entrada do gesto.** Fechar a pinca gira uma vez; segurar nao
-continua girando. Para girar de novo, abre e fecha. E o que um botao faz, e e o
-que a pessoa espera sem ninguem explicar.
+**Comandos so uma vez por gesto.** Fechar e abrir a pinca gira uma vez;
+segurar nao continua girando. E o que um botao faz, e e o que a pessoa espera
+sem ninguem explicar.
+
+**Girar acontece ao soltar a pinca, como um clique.** Para encostar o polegar
+no medio — guardar a peca — ele passa pela ponta do indicador, e girar na hora
+em que a pinca do indicador aparecia fazia a peca girar toda vez que alguem
+tentava guarda-la. Esperando a pinca abrir, da para saber se ela era mesmo do
+indicador ou so caminho para o medio.
 
 **O punho precisa se firmar.** Despencar nao tem volta, entao o punho tem que
 aparecer em alguns quadros seguidos — uma mao saindo da camera passa por
@@ -156,7 +162,7 @@ class Comandos:
             self._andar_para(self.alvo)
         jogo.descer_rapido(gesto == Gesto.MOVER and y > ZONA_DESCIDA)
 
-        if gesto == Gesto.PINCA_INDICADOR and anterior != Gesto.PINCA_INDICADOR:
+        if anterior == Gesto.PINCA_INDICADOR and gesto not in (Gesto.PINCA_INDICADOR, Gesto.PINCA_MEDIO):
             jogo.girar()
         if gesto == Gesto.PINCA_MEDIO and anterior != Gesto.PINCA_MEDIO:
             jogo.guardar()
