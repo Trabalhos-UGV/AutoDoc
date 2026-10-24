@@ -49,7 +49,7 @@ export function criarPalco(canvas) {
   // Enquadramento de busto: cabeça, tronco e braços grandes, como numa
   // chamada de vídeo. As pernas não existem — nem precisariam aparecer.
   const camera = new THREE.PerspectiveCamera(26, 1, 0.1, 20);
-  camera.position.set(0, 0.56, 3.2);
+  camera.position.set(0, 0.56, 3.5);
   camera.lookAt(0, 0.47, 0);
 
   let personagem = null;
