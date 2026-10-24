@@ -84,6 +84,30 @@ class TestPersonagem(unittest.TestCase):
         self.assertEqual(len(retrato["personagens"]), 15)
 
 
+class TestAvatar(unittest.TestCase):
+    def test_pose_vai_no_retrato_mesmo_escolhendo(self):
+        partida = partida_parada()
+        partida.avatar, partida.escolhendo = True, True
+        partida.passo(0.0, Gesto.MOVER, montar_mao(), [], pose={"cabeca": "girada"})
+        retrato = partida.retrato()
+        self.assertEqual((retrato["avatar"], retrato["pose"]), (True, {"cabeca": "girada"}))
+        self.assertEqual(retrato["personagens"], [{"nome": "caramelo", "rotulo": "Vira-lata caramelo"}])
+
+    def test_com_avatar_so_aceita_personagem_3d(self):
+        partida = partida_parada()
+        partida.avatar = True
+        self.assertFalse(partida.escolher_personagem("panda"))
+        self.assertTrue(partida.escolher_personagem("caramelo"))
+
+    def test_desligar_volta_para_a_mascara(self):
+        partida = partida_parada()
+        partida.avatar, partida.personagem, partida.pose = True, "caramelo", {"qualquer": 1}
+        partida.desligar_avatar()
+        self.assertEqual((partida.avatar, partida.pose, partida.personagem), (False, None, "cachorro"))
+        partida.desligar_avatar()  # de novo: nada muda
+        self.assertEqual(partida.personagem, "cachorro")
+
+
 class TestRotas(unittest.TestCase):
     def setUp(self):
         self.partida = partida_parada()
@@ -130,6 +154,11 @@ class TestRotas(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as erro:
             self.pedir("api/personagem", {"nome": "dragao"})
         self.assertEqual(erro.exception.code, 400)
+
+    def test_desligar_o_avatar_pela_rede(self):
+        self.partida.avatar = True
+        _, corpo = self.pedir("api/avatar/desligar", {})
+        self.assertFalse(json.loads(corpo)["avatar"])
 
     def test_imagem_do_personagem_e_servida(self):
         status, corpo = self.pedir("personagens/panda.png")

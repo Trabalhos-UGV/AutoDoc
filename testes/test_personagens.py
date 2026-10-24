@@ -21,6 +21,12 @@ class TestPersonagens(unittest.TestCase):
         self.assertEqual(len(set(personagens.NOMES)), len(personagens.NOMES))
         self.assertIn("MIT", (personagens.PASTA / "LICENCA-fluent-emoji.txt").read_text())
 
+    def test_todo_avatar_tem_ficha_no_javascript(self):
+        fichas = (personagens.PASTA.parent / "js" / "avatar" / "fichas.js").read_text(encoding="utf-8")
+        for nome in personagens.NOMES_AVATARES:
+            self.assertIn(f"  {nome}: {{", fichas, nome)
+        self.assertEqual(personagens.para_tela(avatar=True)[0], {"nome": "caramelo", "rotulo": "Vira-lata caramelo"})
+
     def test_lista_para_a_tela(self):
         primeiro = personagens.para_tela()[0]
         self.assertEqual(primeiro, {"nome": "cachorro", "rotulo": "Cachorro", "imagem": "personagens/cachorro.png"})

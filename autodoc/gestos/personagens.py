@@ -37,11 +37,21 @@ PERSONAGENS = (
 
 NOMES = tuple(nome for nome, _, _ in PERSONAGENS)
 
+# Os personagens 3D do avatar, feitos em js/avatar/fichas.js. O nome aqui
+# precisa ser a chave da ficha la — um teste confere.
+AVATARES = (
+    ("caramelo", "Vira-lata caramelo"),
+)
+
+NOMES_AVATARES = tuple(nome for nome, _ in AVATARES)
+
 
 def arquivo(nome: str) -> Path:
     return PASTA / f"{nome}.png"
 
 
-def para_tela() -> list[dict]:
-    """A lista que a tela de escolha desenha."""
+def para_tela(avatar: bool = False) -> list[dict]:
+    """A lista que a tela de escolha desenha: os 3D, ou os emojis da mascara 2D."""
+    if avatar:
+        return [{"nome": nome, "rotulo": rotulo} for nome, rotulo in AVATARES]
     return [{"nome": nome, "rotulo": rotulo, "imagem": f"personagens/{nome}.png"} for nome, rotulo, _ in PERSONAGENS]

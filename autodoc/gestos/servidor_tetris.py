@@ -7,6 +7,7 @@
     POST /api/tecla          {tecla} com o `event.key` do navegador
     POST /api/personagem     {nome}: escolhe o personagem e comeca a jogar
     POST /api/personagem/trocar   volta para a escolha, com o jogo parado
+    POST /api/avatar/desligar     a tela nao tem WebGL: volta para a mascara 2D
 
 E o mesmo arranjo do aplicativo: um servidor so em 127.0.0.1, as telas em HTML
 e a janela nativa por cima. As rotas herdam de `web.servidor.Rotas`, que ja
@@ -71,15 +72,21 @@ class Partida:
         # escolhido, para o rosto nunca aparecer descoberto, nem na escolha.
         self.personagem: str | None = None
         self.escolhendo = False
+        # Com o avatar 3D ligado, a tela recebe a pose do personagem em vez da
+        # imagem da camera.
+        self.avatar = False
+        self.pose: dict | None = None
         self.maos: list[dict] = []
         self._eventos: list[dict] = []
         self._trava = threading.Lock()
 
-    def passo(self, agora: float, gesto=None, pontos=None, maos: list[dict] | None = None) -> None:
+    def passo(self, agora: float, gesto=None, pontos=None, maos: list[dict] | None = None, pose: dict | None = None) -> None:
         """Um quadro. Sem `gesto` e so o tempo passando — o modo sem camera."""
         with self._trava:
+            if pose is not None:
+                self.pose = pose
             if self.escolhendo:
-                # Parado: so a mao continua aparecendo na camera.
+                # Parado: so a mao (ou o personagem) continua se mexendo.
                 self.maos = maos or []
                 return
             if gesto is not None:
@@ -89,7 +96,7 @@ class Partida:
             self._eventos += self.jogo.tirar_eventos()
 
     def escolher_personagem(self, nome: str) -> bool:
-        if nome not in personagens.NOMES:
+        if nome not in (personagens.NOMES_AVATARES if self.avatar else personagens.NOMES):
             return False
         with self._trava:
             self.personagem = nome
@@ -99,6 +106,14 @@ class Partida:
     def trocar_personagem(self) -> None:
         with self._trava:
             self.escolhendo = True
+
+    def desligar_avatar(self) -> None:
+        """A tela nao consegue desenhar 3D: o jogo segue com a mascara 2D."""
+        with self._trava:
+            if self.avatar:
+                self.avatar = False
+                self.pose = None
+                self.personagem = personagens.NOMES[0]
 
     def tecla(self, nome: str) -> bool:
         with self._trava:
@@ -130,7 +145,9 @@ class Partida:
                 "formas": FORMAS,
                 "personagem": self.personagem,
                 "escolhendo": self.escolhendo,
-                "personagens": personagens.para_tela(),
+                "personagens": personagens.para_tela(self.avatar),
+                "avatar": self.avatar,
+                "pose": self.pose,
             }
 
 
@@ -236,6 +253,9 @@ class RotasTetris(Rotas):
             return self._json(partida.retrato(consumir=False))
         if rota == "/api/personagem/trocar":
             partida.trocar_personagem()
+            return self._json(partida.retrato(consumir=False))
+        if rota == "/api/avatar/desligar":
+            partida.desligar_avatar()
             return self._json(partida.retrato(consumir=False))
         self._json({"erro": "rota desconhecida"}, 404)
 
