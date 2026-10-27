@@ -246,10 +246,16 @@ faz parte da organização de documentos, não é instalado pelo instalador e a
 falta dele não muda nada no resto do programa.
 
 ```bash
-pip install -r requirements-gestos.txt   # OpenCV, MediaPipe, PyAutoGUI (~150 MB)
+venv/bin/python -m pip install -r requirements-gestos.txt   # OpenCV, MediaPipe, PyAutoGUI (~150 MB)
 python main.py gestos --quadro           # quadro de desenho, para treinar sem mexer no mouse
 python main.py gestos                    # controla o mouse; --canhoto troca as mãos, --camera 1 escolhe outra webcam
 ```
+
+Use o Python do `venv` para instalar (no Windows, `venv\Scripts\python`): um
+`pip` sozinho é o do sistema, que instala fora do ambiente do AutoDoc — ou é
+recusado, no Linux — e o jogo continua sem achar os pacotes. No Linux o OpenCV
+também precisa da `libGL` do sistema (`libgl1` no Debian/Ubuntu, `mesa` no Arch).
+O botão do Tetris no aplicativo já instala do jeito certo.
 
 Na primeira vez baixa o modelo da mão (7,8 MB) para o cache do usuário. Abre uma
 janela com a imagem da câmera, o gesto reconhecido e as medidas da pinça;

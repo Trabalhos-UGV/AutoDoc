@@ -43,7 +43,38 @@ URL_MODELO = (
     "hand_landmarker/float16/latest/hand_landmarker.task"
 )
 
-INSTALAR = "pip install -r requirements-gestos.txt"
+RAIZ = Path(__file__).resolve().parent.parent.parent
+
+
+def comando_para_instalar() -> str:
+    """O comando de instalacao com o Python que esta rodando agora.
+
+    "pip install" sozinho e o pip do sistema, nao o do venv: no Linux ele ou e
+    recusado ("externally-managed-environment") ou instala em ~/.local, que o
+    venv nao enxerga. A pessoa rodava, dava certo, e o jogo continuava dizendo
+    que faltava. Com o Python certo na frente, nao tem como errar.
+    """
+    python = Path(sys.executable)
+    try:
+        python = python.relative_to(RAIZ)
+    except ValueError:
+        pass
+    return f"{python} -m pip install -r requirements-gestos.txt (na pasta do AutoDoc)"
+
+
+def _sem_dependencia(erro: ImportError) -> GestosIndisponiveis:
+    """Distingue o pacote que falta do pacote que esta la mas nao carrega."""
+    if isinstance(erro, ModuleNotFoundError):
+        return GestosIndisponiveis(f"falta o pacote {erro.name} neste Python. Instale com: {comando_para_instalar()}")
+    # Instalado, mas nao carregou: quase sempre uma biblioteca do proprio
+    # sistema. No Linux e a libGL, que o OpenCV usa e o pip nao traz.
+    dica = ""
+    if sys.platform.startswith("linux"):
+        dica = (
+            " No Linux costuma ser a libGL do sistema: sudo apt install libgl1 (Debian/Ubuntu),"
+            " sudo pacman -S mesa (Arch) ou sudo dnf install mesa-libGL (Fedora)."
+        )
+    return GestosIndisponiveis(f"o pacote está instalado mas não carregou: {erro}.{dica}")
 
 # Teclas que fecham a janela da camera: Enter, Esc e q.
 TECLAS_SAIR = {13, 27, ord("q")}
@@ -98,9 +129,7 @@ def importar_visao():
         import mediapipe
         from mediapipe.tasks.python import BaseOptions, vision
     except ImportError as erro:
-        # Nem todo ImportError diz o nome do que faltou: o do OpenCV sem numpy
-        # vem sem nome, e a mensagem saia "falta None".
-        raise GestosIndisponiveis(f"falta {erro.name or erro}; rode: {INSTALAR}") from erro
+        raise _sem_dependencia(erro) from erro
     return cv2, mediapipe, BaseOptions, vision
 
 
@@ -108,7 +137,7 @@ def importar_mouse():
     try:
         import pyautogui
     except ImportError as erro:
-        raise GestosIndisponiveis(f"falta {erro.name}; rode: {INSTALAR}") from erro
+        raise _sem_dependencia(erro) from erro
     return pyautogui
 
 

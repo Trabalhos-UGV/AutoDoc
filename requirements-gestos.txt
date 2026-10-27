@@ -3,7 +3,11 @@
 # Sao uns 150 MB entre OpenCV e MediaPipe — peso demais para quem so quer
 # organizar documentos.
 #
-#     pip install -r requirements-gestos.txt
+#     venv/bin/python -m pip install -r requirements-gestos.txt
+#
+# Com o Python do venv na frente, e nao um "pip" sozinho: o pip do sistema
+# instala fora do venv (ou e recusado, no Linux), e o jogo nao acha nada.
+# No Windows: venv\Scripts\python -m pip install -r requirements-gestos.txt
 
 # Webcam e a janela com a imagem da camera.
 opencv-python>=4.8
