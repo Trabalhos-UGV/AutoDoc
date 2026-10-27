@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import shutil
 import sys
 import webbrowser
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,37 @@ ALTURA_PADRAO = 840
 # Abaixo disto a tela de gerenciamento comeca a empilhar as colunas; nao faz
 # sentido deixar encolher mais do que o proprio layout aguenta com folga.
 TAMANHO_MINIMO = (960, 640)
+
+
+ICONE = Path(__file__).resolve().parent.parent.parent / "recursos" / "autodoc.icns"
+
+
+def apresentar_como_autodoc(nome: str = "AutoDoc") -> None:
+    """No macOS, o Dock e o menu mostram o nome e o icone do AutoDoc.
+
+    Aberto pelo icone, o AutoDoc roda como filho do pacote AutoDoc.app — e o
+    que o macOS ve na janela e o Python, que se apresenta como "Python", com o
+    foguete. Trocar o nome no dicionario do pacote antes de a aplicacao subir
+    muda o menu; o icone se troca direto na aplicacao.
+
+    So vale aberto pelo icone (o pacote marca `AUTODOC_PELO_ICONE`): pelo
+    terminal o Python e mesmo o Python, e nos testes nao se cria aplicacao
+    nenhuma. Fora do macOS, ou sem o PyObjC (que vem com o pywebview la), nao
+    faz nada.
+    """
+    if sys.platform != "darwin" or not os.environ.get("AUTODOC_PELO_ICONE"):
+        return
+    try:
+        from AppKit import NSApplication, NSImage
+        from Foundation import NSBundle
+    except ImportError:
+        return
+    informacoes = NSBundle.mainBundle().infoDictionary()
+    if informacoes is not None:
+        informacoes["CFBundleName"] = nome
+    if ICONE.exists():
+        imagem = NSImage.alloc().initWithContentsOfFile_(str(ICONE))
+        NSApplication.sharedApplication().setApplicationIconImage_(imagem)
 
 
 class JanelaIndisponivel(RuntimeError):
@@ -191,6 +224,7 @@ def abrir(
     if sem_motor:
         return _cair_no_navegador(url, sem_motor)
 
+    apresentar_como_autodoc()
     try:
         janela = webview.create_window(
             titulo,

@@ -28,61 +28,134 @@ class BaseAtalho(unittest.TestCase):
         self.addCleanup(self._temporaria.cleanup)
 
 
+def osacompile_falso(chamadas: list):
+    """Faz o papel do osacompile e do codesign: monta o esqueleto de um applet."""
+
+    def rodar(comando, check, capture_output):
+        chamadas.append(comando)
+        if comando[0] == "osacompile":
+            pacote = Path(comando[comando.index("-o") + 1])
+            (pacote / "Contents" / "MacOS").mkdir(parents=True)
+            (pacote / "Contents" / "Resources").mkdir(parents=True)
+            (pacote / "Contents" / "MacOS" / "applet").write_bytes(b"binario")
+            (pacote / "Contents" / "Resources" / "Assets.car").write_bytes(b"catalogo")
+            (pacote / "Contents" / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleExecutable": "applet", "CFBundleIconName": "applet", "OSAAppletStayOpen": True,
+            }))
+
+    return rodar
+
+
 class TestMacOS(BaseAtalho):
+    """O pacote com applet, que e o caso de qualquer Mac."""
+
     def setUp(self):
         super().setUp()
-        self.resultado = atalho._criar_macos(self.base)
+        self.chamadas = []
+        self.criar()
         self.pacote = self.base / "AutoDoc.app"
 
-    def test_cria_o_pacote_com_a_estrutura_esperada(self):
+    def criar(self):
+        with (
+            mock.patch.object(atalho.shutil, "which", side_effect=lambda nome: f"/usr/bin/{nome}"),
+            mock.patch.object(atalho.subprocess, "run", side_effect=osacompile_falso(self.chamadas)),
+        ):
+            self.resultado = atalho._criar_macos(self.base)
+
+    def plist(self):
+        return plistlib.loads((self.pacote / "Contents" / "Info.plist").read_bytes())
+
+    def test_monta_o_applet_e_assina_depois(self):
         self.assertTrue(self.resultado.criado)
-        self.assertTrue((self.pacote / "Contents" / "MacOS").is_dir())
-        self.assertTrue((self.pacote / "Contents" / "Resources").is_dir())
+        osacompile, codesign = self.chamadas
+        self.assertEqual(osacompile[:3], ["osacompile", "-s", "-o"])  # -s: fica aberto, vigiando
+        self.assertIn("abrir.sh", osacompile[-1])
+        self.assertEqual(codesign[:4], ["codesign", "--force", "--deep", "--sign"])
 
-    def test_o_info_plist_volta_a_ser_lido(self):
-        """Um plist malformado faz o Finder ignorar o pacote em silêncio."""
-        dados = plistlib.loads((self.pacote / "Contents" / "Info.plist").read_bytes())
-
+    def test_info_plist(self):
+        dados = self.plist()
         self.assertEqual(dados["CFBundleName"], "AutoDoc")
         self.assertEqual(dados["CFBundleIdentifier"], "br.edu.ugv.autodoc")
-        self.assertEqual(dados["CFBundleExecutable"], "AutoDoc")
+        self.assertEqual(dados["CFBundleExecutable"], "applet")
         self.assertEqual(dados["CFBundleShortVersionString"], __version__)
-        self.assertTrue(dados["NSHighResolutionCapable"])
+        self.assertTrue(dados["OSAAppletStayOpen"])  # o que o osacompile pos continua la
+        # O applet e invisivel: quem aparece no Dock e a janela.
+        self.assertTrue(dados["LSUIElement"])
 
-    def test_o_lancador_e_executavel(self):
-        lancador = self.pacote / "Contents" / "MacOS" / "AutoDoc"
-        self.assertTrue(lancador.exists())
-        self.assertTrue(lancador.stat().st_mode & stat.S_IXUSR)
+    def test_declara_a_camera(self):
+        """Sem o motivo declarado, o macOS recusa a camera em silencio."""
+        self.assertIn("câmera", self.plist()["NSCameraUsageDescription"])
 
-    def test_o_lancador_entra_na_raiz_e_chama_o_app(self):
-        """O ícone é clicado meses depois, de qualquer lugar do sistema."""
-        texto = (self.pacote / "Contents" / "MacOS" / "AutoDoc").read_text(encoding="utf-8")
+    def test_o_icone_e_o_do_autodoc_e_nao_o_do_applescript(self):
+        self.assertNotIn("CFBundleIconName", self.plist())
+        self.assertFalse((self.pacote / "Contents" / "Resources" / "Assets.car").exists())
+        if (atalho.RECURSOS / "autodoc.icns").exists():
+            self.assertGreater((self.pacote / "Contents" / "Resources" / "applet.icns").stat().st_size, 0)
 
+    def test_script_de_abertura(self):
+        """O icone e clicado meses depois, de qualquer lugar do sistema."""
+        abrir = self.pacote / "Contents" / "Resources" / "abrir.sh"
+        self.assertTrue(abrir.stat().st_mode & stat.S_IXUSR)
+        texto = abrir.read_text(encoding="utf-8")
         self.assertTrue(texto.startswith("#!/bin/bash"))
         self.assertIn(f'cd "{atalho.RAIZ}"', texto)
         self.assertIn("main.py app", texto)
-
-    def test_o_lancador_usa_o_python_do_venv(self):
-        texto = (self.pacote / "Contents" / "MacOS" / "AutoDoc").read_text(encoding="utf-8")
         self.assertIn("venv/bin/python", texto)
+        # Sem isto o macOS abria o app pelo Rosetta e o numpy nao carregava.
+        self.assertIn("hw.optional.arm64", texto)
+        self.assertIn("exec arch -arm64", texto)
+        # A janela usa isto para aparecer como AutoDoc no Dock.
+        self.assertIn("export AUTODOC_PELO_ICONE=1", texto)
 
-    def test_copia_o_icone_quando_existe(self):
-        icone = self.pacote / "Contents" / "Resources" / "autodoc.icns"
-        if (atalho.RECURSOS / "autodoc.icns").exists():
-            self.assertTrue(icone.exists())
-            self.assertGreater(icone.stat().st_size, 0)
+    def test_rodar_de_novo_refaz_o_pacote(self):
+        """A instalacao e idempotente; o atalho tambem precisa ser."""
+        (self.pacote / "Contents" / "Resources" / "sobra.txt").write_text("de antes")
+        self.criar()
+        self.assertTrue(self.resultado.criado)
+        self.assertFalse((self.pacote / "Contents" / "Resources" / "sobra.txt").exists())
+
+    def test_nao_apaga_um_autodoc_app_de_outra_pessoa(self):
+        (self.pacote / "Contents" / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.outro.app"}))
+        self.criar()
+        self.assertFalse(self.resultado.criado)
+        self.assertEqual(self.plist()["CFBundleIdentifier"], "com.outro.app")
+
+    def test_pacote_quebrado_nao_e_considerado_nosso(self):
+        (self.pacote / "Contents" / "Info.plist").write_bytes(b"nao e plist")
+        self.assertFalse(atalho._e_nosso(self.pacote))
 
     def test_sem_icone_o_pacote_ainda_e_criado(self):
-        outra = self.base / "sem-icone"
         with mock.patch.object(atalho, "RECURSOS", self.base / "nao-existe"):
-            resultado = atalho._criar_macos(outra)
+            self.criar()
+        self.assertTrue(self.resultado.criado)
+
+
+class TestMacOSSemOsacompile(BaseAtalho):
+    """Fora do Mac (montando o pacote no Linux, por exemplo) fica o lancador de script."""
+
+    def setUp(self):
+        super().setUp()
+        with mock.patch.object(atalho.shutil, "which", return_value=None):
+            self.resultado = atalho._criar_macos(self.base)
+        self.pacote = self.base / "AutoDoc.app"
+
+    def test_executavel_e_o_script(self):
+        lancador = self.pacote / "Contents" / "MacOS" / "AutoDoc"
+        self.assertTrue(lancador.stat().st_mode & stat.S_IXUSR)
+        self.assertIn("main.py app", lancador.read_text(encoding="utf-8"))
+        dados = plistlib.loads((self.pacote / "Contents" / "Info.plist").read_bytes())
+        self.assertEqual(dados["CFBundleExecutable"], "AutoDoc")
+        self.assertIn("câmera", dados["NSCameraUsageDescription"])
+        self.assertNotIn("LSUIElement", dados)
+
+
+@unittest.skipUnless(sys.platform == "darwin" and atalho.shutil.which("osacompile"), "so num Mac")
+class TestMacOSDeVerdade(BaseAtalho):
+    def test_o_pacote_montado_tem_assinatura_valida(self):
+        resultado = atalho._criar_macos(self.base)
         self.assertTrue(resultado.criado)
-
-    def test_rodar_de_novo_nao_quebra(self):
-        """A instalação é idempotente; o atalho também precisa ser."""
-        segundo = atalho._criar_macos(self.base)
-        self.assertTrue(segundo.criado)
-
+        verificacao = atalho.subprocess.run(["codesign", "-v", str(resultado.caminho)], capture_output=True)
+        self.assertEqual(verificacao.returncode, 0, verificacao.stderr)
 
 class TestLinux(BaseAtalho):
     def setUp(self):

@@ -1,0 +1,49 @@
+/* O palco do personagem 3D. O fundo é pintado aqui — o canvas é transparente
+   — num degradê do mesmo tom quente da paleta, com um foco de luz atrás do
+   personagem para ele não ficar perdido no escuro. */
+
+.palco {
+  position: relative;
+  border-radius: var(--ad-raio);
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 42%, rgba(240, 193, 42, 0.16), transparent 70%),
+    radial-gradient(ellipse 120% 80% at 50% 110%, #2a2419, transparent 60%),
+    var(--ad-console);
+  border: 1px solid var(--ad-borda);
+}
+
+/* Absoluto, e nao height: 100%: dentro de um item flexivel a porcentagem nao
+   tem altura definida a que se referir, o canvas caia no tamanho padrao dele
+   (150 px) e o three.js desenhava so numa faixa do palco. */
+.palco__tela { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+
+/* ------------------------------------------------------------- vitrine */
+
+.vitrine {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 28px 28px;
+}
+
+.vitrine__topo { display: flex; align-items: center; gap: 10px; }
+
+.vitrine__sigla {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--ad-acento);
+  color: var(--ad-fundo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.vitrine__titulo { margin: 0; font-size: 15px; font-weight: 600; }
+.vitrine__titulo span { color: var(--ad-fraco); font-weight: 500; }
+
+.vitrine .palco { flex: 1; min-height: 480px; }

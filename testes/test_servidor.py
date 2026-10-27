@@ -17,6 +17,7 @@ from unittest import mock
 from autodoc import monitor
 from autodoc.catalogo import Catalogo
 from autodoc.config import Config
+from autodoc.gestos.lancador import Lancador
 from autodoc.pipeline import Pipeline, Resultado
 from autodoc.web import servidor
 from autodoc.web.servidor import Servidor
@@ -67,6 +68,46 @@ class BaseServidor(unittest.TestCase):
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(pedido) as resposta:
             return json.loads(resposta.read())
+
+
+class LancadorFalso:
+    def __init__(self):
+        self.pedidos = []
+
+    def estado(self):
+        return {"gestos": True, "aberto": False}
+
+    def abrir(self, sem_camera=False):
+        self.pedidos.append(("abrir", sem_camera))
+        return {"gestos": True, "aberto": True}
+
+    def instalar(self):
+        self.pedidos.append(("instalar",))
+        return {"gestos": False, "instalando": True}
+
+
+class TestTetrisPeloApp(BaseServidor):
+    """O botao da lateral: o servidor so repassa ao lancador."""
+
+    def setUp(self):
+        self.original = self.servidor.lancador
+        self.servidor.lancador = LancadorFalso()
+        self.addCleanup(setattr, self.servidor, "lancador", self.original)
+
+    def test_estado(self):
+        self.assertEqual(self.get("/api/tetris"), {"gestos": True, "aberto": False})
+
+    def test_abrir_com_e_sem_camera(self):
+        self.assertTrue(self.post("/api/tetris", {})["aberto"])
+        self.post("/api/tetris", {"sem_camera": True})
+        self.assertEqual(self.servidor.lancador.pedidos, [("abrir", False), ("abrir", True)])
+
+    def test_instalar(self):
+        self.assertTrue(self.post("/api/gestos/instalar", {})["instalando"])
+        self.assertEqual(self.servidor.lancador.pedidos, [("instalar",)])
+
+    def test_o_lancador_de_verdade_nasce_com_o_servidor(self):
+        self.assertIsInstance(self.original, Lancador)
 
 
 class TestEstado(BaseServidor):

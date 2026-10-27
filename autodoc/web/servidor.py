@@ -8,6 +8,9 @@ telas foram construidas:
     GET  /api/eventos               SSE — um evento por documento novo
     POST /api/abrir                 abre a pasta ou o documento no sistema
     POST /api/reclassificar         corrige a mao a categoria de um documento
+    GET  /api/tetris                se os gestos estao instalados e o Tetris aberto
+    POST /api/tetris                abre o Tetris ({sem_camera} joga pelo teclado)
+    POST /api/gestos/instalar       instala o controle por gestos, em segundo plano
 
 Roda so em 127.0.0.1: e um programa de mesa, o catalogo tem o conteudo dos
 documentos da pessoa, e nada disso tem por que estar acessivel na rede.
@@ -34,6 +37,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
 from ..catalogo import Catalogo
+from ..gestos.lancador import Lancador
 from ..classificador import ROTULOS
 from ..monitor import criar_observador, processar_pendentes
 from ..pipeline import Pipeline
@@ -114,6 +118,28 @@ class ServidorHTTP(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def abrir_porta(manipulador, preferida: int) -> tuple[ServidorHTTP, int]:
+    """Abre a porta preferida, ou a proxima livre. Devolve o servidor e a porta.
+
+    Abrir o AutoDoc com uma janela dele ja aberta derrubava o programa com
+    "Address already in use" — um traceback no terminal para quem so clicou
+    duas vezes no icone. Achar outra porta e o comportamento util: o
+    endereco e detalhe interno, ninguem digita esse numero.
+    """
+    for porta in range(preferida, preferida + TENTATIVAS_DE_PORTA):
+        try:
+            http = ServidorHTTP(("127.0.0.1", porta), manipulador)
+        except OSError as erro:
+            if erro.errno != errno.EADDRINUSE:
+                raise
+            continue
+        if porta != preferida:
+            logger.info("porta %d ocupada; usando a %d", preferida, porta)
+        return http, porta
+
+    raise OSError(f"nenhuma porta livre entre {preferida} e {preferida + TENTATIVAS_DE_PORTA - 1}")
+
+
 class Servidor:
     """Sobe o servidor HTTP e o monitoramento, e liga um no outro."""
 
@@ -134,6 +160,8 @@ class Servidor:
         # mesmos eventos e cada documento novo apareceria em so uma delas.
         self._ouvintes: list[queue.Queue] = []
         self._trava = threading.Lock()
+        # O botao do Tetris na lateral: o jogo roda em outro processo.
+        self.lancador = Lancador()
 
     # ------------------------------------------------------------ dados
 
@@ -272,31 +300,8 @@ class Servidor:
     # ------------------------------------------------------------ ciclo
 
     def _escutar(self) -> ServidorHTTP:
-        """Abre a porta preferida, ou a proxima livre.
-
-        Abrir o AutoDoc com uma janela dele ja aberta derrubava o programa com
-        "Address already in use" — um traceback no terminal para quem so clicou
-        duas vezes no icone. Achar outra porta e o comportamento util: o
-        endereco e detalhe interno, ninguem digita esse numero.
-        """
-        manipulador = partial(Rotas, servidor=self)
-
-        for porta in range(self.porta, self.porta + TENTATIVAS_DE_PORTA):
-            try:
-                http = ServidorHTTP(("127.0.0.1", porta), manipulador)
-            except OSError as erro:
-                if erro.errno != errno.EADDRINUSE:
-                    raise
-                continue
-            if porta != self.porta:
-                logger.info("porta %d ocupada; usando a %d", self.porta, porta)
-            self.porta = porta
-            return http
-
-        raise OSError(
-            f"nenhuma porta livre entre {self.porta} e "
-            f"{self.porta + TENTATIVAS_DE_PORTA - 1}"
-        )
+        http, self.porta = abrir_porta(partial(Rotas, servidor=self), self.porta)
+        return http
 
     def iniciar(self) -> str:
         """Sobe o HTTP e o observador. Devolve a URL para abrir."""
@@ -398,6 +403,9 @@ class Rotas(SimpleHTTPRequestHandler):
         if rota == "/api/eventos":
             return self._sse()
 
+        if rota == "/api/tetris":
+            return self._json(self.servidor.lancador.estado())
+
         if rota == "/api/documentos":
             consulta = parse_qs(partes.query)
             return self._json(
@@ -427,5 +435,11 @@ class Rotas(SimpleHTTPRequestHandler):
 
         if rota == "/api/reclassificar":
             return self._json(self.servidor._reclassificar(corpo))
+
+        if rota == "/api/tetris":
+            return self._json(self.servidor.lancador.abrir(sem_camera=bool(corpo.get("sem_camera"))))
+
+        if rota == "/api/gestos/instalar":
+            return self._json(self.servidor.lancador.instalar())
 
         self._json({"erro": "rota desconhecida"}, 404)

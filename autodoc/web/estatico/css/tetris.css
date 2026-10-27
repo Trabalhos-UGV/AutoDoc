@@ -1,0 +1,491 @@
+/* Tela do Tetris por gestos.
+
+   Mesma base das outras telas: a paleta e as fontes vêm de base.css. O que é
+   só daqui são as cores das peças, escolhidas para conviver com o fundo
+   quente da paleta — o ciano e o roxo do Tetris clássico, puros, gritariam
+   contra o marrom-escuro. O tabuleiro é desenhado em canvas pelo tetris.js,
+   que lê estas mesmas variáveis; mudar uma cor aqui muda o jogo inteiro. */
+
+:root {
+  --tt-I: #5fc4d6;
+  --tt-O: var(--ad-acento);
+  --tt-T: #b48ce2;
+  --tt-S: var(--ad-verde);
+  --tt-Z: #ec6f5e;
+  --tt-J: #6e98ea;
+  --tt-L: #f29a4a;
+
+  --tt-campo: var(--ad-console);
+  --tt-grade: rgba(241, 238, 230, 0.035);
+  /* A coluna para onde a mão aponta: tem que se ver sem competir com as peças. */
+  --tt-mira: rgba(240, 193, 42, 0.06);
+  --tt-mira-linha: rgba(240, 193, 42, 0.55);
+  --tt-lateral: 268px;
+}
+
+html, body { height: 100%; }
+body { overflow: hidden; }
+
+/* -------------------------------------------------------------- moldura */
+
+.tetris {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: var(--tt-lateral) auto var(--tt-lateral);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'topo   topo  topo'
+    'camera campo placar';
+  justify-content: center;
+  gap: 18px 28px;
+  padding: 18px 28px 28px;
+}
+
+.topo {
+  grid-area: topo;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.topo__marca { display: flex; align-items: center; gap: 10px; }
+
+.topo__sigla {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--ad-acento);
+  color: var(--ad-fundo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.topo__nome { font-size: 15px; font-weight: 600; }
+.topo__fino { color: var(--ad-fraco); font-weight: 500; }
+
+.topo__modo {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ad-fraco);
+}
+
+.topo__ponto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ad-fraco);
+}
+
+.topo__modo[data-estado='camera'] { color: var(--ad-verde); }
+.topo__modo[data-estado='camera'] .topo__ponto {
+  background: var(--ad-verde);
+  animation: ad-pulso 2s ease-in-out infinite;
+}
+.topo__modo[data-estado='teclado'] { color: var(--ad-acento); }
+.topo__modo[data-estado='teclado'] .topo__ponto { background: var(--ad-acento); }
+
+/* ------------------------------------------------------------- colunas */
+
+.coluna {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+.coluna--camera { grid-area: camera; }
+.coluna--placar { grid-area: placar; }
+
+.bloco {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bloco > .ad-rotulo { margin: 0; }
+
+/* -------------------------------------------------------------- câmera */
+
+.camera {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--ad-raio-min);
+  overflow: hidden;
+  background: var(--ad-console);
+  border: 1px solid var(--ad-borda);
+}
+
+.camera__video,
+.camera__maos {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Com o avatar, o painel vira palco: mais alto, para o personagem caber de
+   corpo inteiro (do peito para cima), e com o fundo do palco de avatar.css. */
+.camera[data-avatar] {
+  aspect-ratio: 4 / 5;
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 42%, rgba(240, 193, 42, 0.16), transparent 70%),
+    radial-gradient(ellipse 120% 80% at 50% 110%, #2a2419, transparent 60%),
+    var(--ad-console);
+}
+.camera__palco { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.camera__vazia {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--ad-fraco);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.camera__vazia p { margin: 0; }
+.camera__icone {
+  width: 34px;
+  height: 34px;
+  fill: none;
+  stroke: var(--ad-fantasma);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trocar {
+  align-self: flex-start;
+  margin-top: -2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--ad-sans);
+  font-size: 12px;
+  color: var(--ad-fraco);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.trocar:hover { color: var(--ad-acento); }
+
+/* ----------------------------------------------- escolha do personagem */
+
+.escolha {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Fundo escuro solido, e sem desfoque nem animacao de entrada: com eles a
+     caixa chegou a ser desenhada meio transparente, com o jogo vazando por
+     tras dos personagens. */
+  background: rgba(12, 10, 7, 0.86);
+}
+
+.escolha__caixa {
+  width: min(720px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 26px 28px 28px;
+  border-radius: var(--ad-raio);
+  border: 1px solid var(--ad-borda-forte);
+  background: var(--ad-painel);
+  box-shadow: var(--ad-sombra);
+}
+
+.escolha__titulo { margin: 0; font-size: 22px; font-weight: 600; color: var(--ad-tinta-forte); }
+.escolha__texto { margin: 6px 0 20px; font-size: 13.5px; color: var(--ad-texto); }
+
+.escolha__grade {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.personagem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 6px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--ad-borda);
+  background: var(--ad-cartao);
+  color: var(--ad-texto);
+  font-family: var(--ad-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+.personagem img { width: 72px; height: 72px; }
+.personagem:hover { border-color: var(--ad-acento); background: var(--ad-barra); transform: translateY(-2px); }
+.personagem[aria-pressed='true'] { border-color: var(--ad-acento); color: var(--ad-tinta-forte); background: var(--ad-acento-fraco); }
+
+@media (max-width: 760px) {
+  .escolha__grade { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ----------------------------------------------------------- comandos */
+
+.comandos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.comandos li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  color: var(--ad-texto);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.comandos small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ad-fraco);
+}
+
+.comandos__icone {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--ad-barra);
+  font-size: 16px;
+}
+
+/* O gesto que a câmera está vendo agora acende na lista: é o retorno que
+   ensina sem ninguém explicar. */
+.comandos li[data-ativo] {
+  background: var(--ad-acento-fraco);
+  border-color: var(--ad-acento-linha);
+  color: var(--ad-tinta-forte);
+}
+
+.comandos--teclas li { padding: 4px 8px; gap: 6px; }
+.comandos--teclas span { margin-left: 6px; color: var(--ad-fraco); }
+
+kbd {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--ad-borda-viva);
+  border-bottom-width: 2px;
+  background: var(--ad-barra);
+  font-family: var(--ad-mono);
+  font-size: 11.5px;
+  color: var(--ad-tinta);
+}
+
+/* ---------------------------------------------------------- tabuleiro */
+
+.campo {
+  grid-area: campo;
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+}
+
+/* A altura manda: o tabuleiro ocupa o que a janela der, e a largura sai da
+   proporção de 10 por 20. */
+.campo__moldura {
+  position: relative;
+  height: 100%;
+  aspect-ratio: 1 / 2;
+  max-height: calc(100vh - 92px);
+  border-radius: 14px;
+  padding: 8px;
+  background: var(--ad-painel);
+  border: 1px solid var(--ad-borda-forte);
+  box-shadow: var(--ad-sombra);
+}
+
+.campo__tela {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+}
+
+/* O "soco" ao despencar: a moldura afunda um pouco e volta. */
+@keyframes tt-soco {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(7px); }
+  100% { transform: translateY(0); }
+}
+.campo__moldura.soco { animation: tt-soco 190ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+
+/* ------------------------------------------------------ aviso e brinde */
+
+.aviso {
+  position: absolute;
+  inset: 8px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(12, 10, 7, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: tt-surgir 220ms ease both;
+}
+
+@keyframes tt-surgir { from { opacity: 0; } to { opacity: 1; } }
+
+.aviso p { margin: 0; }
+.aviso__titulo { font-size: 22px; font-weight: 600; color: var(--ad-tinta-forte); }
+.aviso__numero { font-size: 56px; font-weight: 600; color: var(--ad-acento); line-height: 1; }
+.aviso__numero:empty { display: none; }
+.aviso__texto { font-size: 13.5px; color: var(--ad-texto); line-height: 1.5; max-width: 26ch; }
+
+/* "Nível 2", "Tetris!": aparece no meio do campo e sobe sumindo. */
+.brinde {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 38%;
+  margin: 0;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ad-acento);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes tt-brinde {
+  0% { opacity: 0; transform: translateY(10px) scale(0.92); }
+  18% { opacity: 1; transform: translateY(0) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-26px); }
+}
+.brinde.ativo { animation: tt-brinde 1100ms ease-out; }
+
+/* ------------------------------------------------------------- placar */
+
+.placar__pontos {
+  margin: -4px 0 0;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ad-tinta-forte);
+  font-variant-numeric: tabular-nums;
+}
+
+.placar__linha {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ad-borda);
+}
+.placar__linha h3 { margin: 0 0 4px; }
+
+.placar__valor {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ad-tinta);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes tt-pulso-nivel {
+  0% { color: var(--ad-acento); transform: scale(1.35); }
+  100% { color: var(--ad-tinta); transform: scale(1); }
+}
+.placar__valor.subiu { display: inline-block; animation: tt-pulso-nivel 600ms ease-out; transform-origin: left center; }
+
+/* ---------------------------------------------------- fila e guardada */
+
+.fila { display: flex; flex-direction: column; gap: 6px; }
+
+.fila__peca {
+  display: block;
+  width: 100%;
+  height: 46px;
+}
+.fila__peca--primeira { height: 64px; }
+
+.guardada { height: 64px; transition: opacity 160ms ease; }
+.guardada[data-usada] { opacity: 0.35; }
+
+.guardada__dica {
+  margin: -4px 0 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ad-fraco);
+}
+
+/* ------------------------------------------------------- gesto atual */
+
+.gesto__nome {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ad-acento);
+}
+
+/* ------------------------------------------------- janelas pequenas */
+
+@media (max-width: 1100px) {
+  :root { --tt-lateral: 220px; }
+  .tetris { gap: 14px 18px; padding: 14px 18px 18px; }
+  .placar__pontos { font-size: 32px; }
+}
+
+/* Janela baixa: as colunas laterais têm altura fixa, ao contrário do
+   tabuleiro, e eram elas que passavam da borda de baixo. */
+@media (max-height: 680px) {
+  .tetris { row-gap: 12px; padding-top: 12px; padding-bottom: 16px; }
+  .coluna { gap: 10px; }
+  .bloco { padding: 11px 13px 12px; gap: 9px; }
+  .comandos li { padding: 4px 8px; }
+  .comandos--teclas li { padding: 2px 8px; }
+  .camera { aspect-ratio: 16 / 10; }
+  .placar__pontos { font-size: 30px; }
+  .fila__peca { height: 38px; }
+  .fila__peca--primeira, .guardada { height: 52px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .escolha,
+  .personagem:hover { animation: none; transform: none; }
+  .campo__moldura.soco,
+  .placar__valor.subiu,
+  .aviso { animation: none; }
+  .brinde.ativo { animation-duration: 1ms; }
+}

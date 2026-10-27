@@ -1,0 +1,28 @@
+# Controle por gestos (python main.py gestos). Totalmente opcional: o AutoDoc
+# organiza documentos sem nada disto, e o instalador nao instala este arquivo.
+# Sao uns 150 MB entre OpenCV e MediaPipe — peso demais para quem so quer
+# organizar documentos.
+#
+#     pip install -r requirements-gestos.txt
+
+# Webcam e a janela com a imagem da camera.
+opencv-python>=4.8
+
+# Deteccao da mao. A partir da 0.10.30 a API antiga (`mp.solutions`) saiu, e o
+# codigo usa a de tarefas (`HandLandmarker`), que existe desde a 0.10.
+mediapipe>=0.10.30
+
+# Mover, clicar e rolar. No macOS traz o pyobjc junto.
+pyautogui>=0.9.54
+
+# Pedido de permissao da camera no macOS, esperando a resposta da pessoa. Sem
+# ele o OpenCV pede sozinho, mas nao espera: o jogo fecha e precisa ser aberto
+# de novo depois de permitir. A versao acompanha a do PyObjC do PyAutoGUI.
+pyobjc-framework-AVFoundation; sys_platform == "darwin"
+
+# Volume no Windows. A partir desta versao `GetSpeakers()` devolve o aparelho
+# ja com `EndpointVolume`.
+pycaw>=20240210; sys_platform == "win32"
+
+# Brilho no Windows e no Linux. No macOS o brilho vai pelo proprio sistema.
+screen-brightness-control>=0.20; sys_platform != "darwin"

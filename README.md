@@ -138,6 +138,8 @@ python main.py app                # abre a janela do AutoDoc (padrão)
 python main.py monitorar          # monitora pela linha de comando, sem janela
 python main.py buscar "luz março" # busca nos documentos indexados
 python main.py listar             # últimos documentos processados
+python main.py gestos             # controla o mouse com a mão, pela webcam
+python main.py gestos --tetris    # Tetris comandado pela mão (--sem-camera: pelo teclado)
 ```
 
 Com o AutoDoc aberto, qualquer arquivo colocado na pasta monitorada é lido,
@@ -174,7 +176,7 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 412 testes, ~11 segundos
+python -m unittest discover -s testes     # 721 testes, ~22 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
@@ -237,6 +239,113 @@ sistema sem instalá-lo. Para ver as três em sequência:
 python3 ferramentas/servir_demo.py
 ```
 
+### Controle por gestos (opcional)
+
+Mexe no mouse do computador com a mão, pela webcam. É um recurso à parte: não
+faz parte da organização de documentos, não é instalado pelo instalador e a
+falta dele não muda nada no resto do programa.
+
+```bash
+pip install -r requirements-gestos.txt   # OpenCV, MediaPipe, PyAutoGUI (~150 MB)
+python main.py gestos --quadro           # quadro de desenho, para treinar sem mexer no mouse
+python main.py gestos                    # controla o mouse; --canhoto troca as mãos, --camera 1 escolhe outra webcam
+```
+
+Na primeira vez baixa o modelo da mão (7,8 MB) para o cache do usuário. Abre uma
+janela com a imagem da câmera, o gesto reconhecido e as medidas da pinça;
+**Esc** fecha, e levar o mouse de verdade a um canto da tela é o freio de
+emergência.
+
+| Gesto | Mouse | Quadro de desenho |
+| --- | --- | --- |
+| Mão aberta, sem pinça | Move o cursor | Move o cursor |
+| Pinça polegar + indicador | Rápida: clique. Duas seguidas: clique duplo. Segurada: arrasta | Desenha |
+| Pinça polegar + médio | Clique direito | Apaga a região do cursor |
+| Punho fechado | Rola a tela, como um joystick: quanto mais longe de onde fechou, mais rápido | — |
+| Pinça polegar + indicador, mão secundária | Para cima/baixo: volume. Para os lados: brilho | — |
+
+Com uma mão só na frente da câmera, ela é sempre a principal. O cursor segue o
+centro da palma — e não a ponta do dedo, que se mexe ao fazer a pinça — dentro
+de uma área central da câmera, para os cantos da tela serem alcançáveis sem a
+mão sair do quadro.
+
+**macOS:** o sistema pede duas permissões para o aplicativo de onde o AutoDoc é
+aberto (Terminal, VS Code...): **Câmera**, que ele pede sozinho na primeira vez,
+e **Acessibilidade**, sem a qual os cliques são descartados em silêncio. Se ela
+faltar, o AutoDoc avisa e abre a tela certa dos Ajustes do Sistema. O brilho só
+responde na tela embutida; num monitor externo o resto continua funcionando.
+
+Cada sistema tem seu caminho para o que o PyAutoGUI não cobre:
+
+| | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Volume | pycaw (API de áudio) | AppleScript | `pactl` |
+| Brilho | screen-brightness-control | DisplayServices | screen-brightness-control |
+| Rolagem horizontal | API do Windows (`MOUSEEVENTF_HWHEEL`) | PyAutoGUI | PyAutoGUI |
+
+A ideia vem do
+[Gesture-Controlled-Virtual-Mouse](https://github.com/Viral-Doshi/Gesture-Controlled-Virtual-Mouse),
+de Viral Doshi. O código não: o original é GPL-3.0, roda só no Windows e usa a
+API `mp.solutions` do MediaPipe, que não existe mais nas versões atuais — ele
+não instala num Python recente. Esta é uma reescrita sobre a API de tarefas
+(`HandLandmarker`), com o que depende do sistema isolado em
+`autodoc/gestos/sistema.py`.
+
+A primeira versão seguia os gestos do original e falhava na prática. O que foi
+corrigido, para quem for mexer nisto:
+
+- **Mão trocada.** A imagem era espelhada *antes* da detecção, e o MediaPipe
+  inverte o rótulo direita/esquerda numa imagem espelhada: a mão direita virava
+  a secundária, que não move o cursor. Agora detecta na imagem crua e espelha
+  só os pontos.
+- **Pinça em fração do quadro.** Longe da câmera, a mão aberta inteira cabia no
+  limiar e virava pinça; perto, a pinça nunca fechava. Agora tudo é medido em
+  palmas, com histerese para o traço não picotar.
+- **Dedos medidos pela altura.** Inclinar a mão bastava para errar. Agora o dedo
+  está aberto se a ponta está mais longe do pulso que a junta do meio.
+- **Movimento lento descartado.** O cursor andava pelo deslocamento entre dois
+  quadros e ignorava os pequenos — e num movimento lento todos são pequenos.
+  Agora a posição é absoluta, suavizada por um filtro One Euro.
+- **Arrasto e clique duplo no macOS.** O PyAutoGUI move sem marcar o botão como
+  apertado e manda todo clique como primeiro clique; o sistema ignorava os dois.
+
+### Tetris por gestos
+
+O botão **"Tetris com a mão"**, na lateral do AutoDoc, abre o jogo numa janela
+própria. Se os gestos ainda não estiverem instalados, o mesmo botão instala
+(uns 150 MB, uma vez só), mostrando o progresso — nada de terminal. O link
+"ou jogar pelo teclado" abre o jogo sem câmera.
+
+| Gesto | No jogo |
+| --- | --- |
+| Mão para os lados | A peça vai para a coluna para onde a mão aponta |
+| Polegar no indicador, encostar e soltar | Gira a peça |
+| Baixar a mão (abaixo da linha tracejada) | Desce mais rápido |
+| Fechar a mão | A peça despenca |
+| Polegar no médio | Guarda a peça; de novo, troca pela guardada |
+| Tirar a mão da câmera | Pausa (volta com contagem) |
+
+Pelo teclado: setas, `Z`/`X` giram, espaço despenca, `C` guarda, `P` pausa, `R`
+recomeça. As regras (rotação oficial SRS, sorteio em "saco de 7", trava com
+atraso) ficam em `autodoc/gestos/tetris.py`, com testes; a tela só desenha.
+
+**Você vira um personagem 3D.** Com a câmera ligada, a imagem dela não aparece:
+um vira-lata caramelo em 3D copia a sua cabeça, o rosto (piscar, boca, sorriso,
+sobrancelhas), os braços e as mãos. Ele comemora quando você fecha uma linha,
+pula num "TETRIS!" e fica cabisbaixo no fim de jogo. O rosto, o corpo e as mãos
+viram só números de pose — **nenhuma imagem sua sai do programa**. O personagem
+é construído em código com o three.js, sem modelo 3D de terceiros.
+
+Se a máquina não desenhar 3D, o jogo volta para a imagem da câmera com o rosto
+coberto por um emoji escolhido entre 15 animais (Fluent Emoji, da Microsoft,
+licença MIT, em `autodoc/web/estatico/personagens/`).
+
+Na primeira vez são baixados os modelos do MediaPipe para o rosto (3,7 MB) e o
+corpo (5,5 MB). No Mac com chip Apple, o AutoDoc aberto pelo ícone pede a
+permissão da câmera em nome próprio: o pacote tem um executável dele (gerado
+pelo `osacompile`), em vez de um script que virava o Python — com o script, o
+macOS recusava a câmera em silêncio e ainda abria o app emulando Intel.
+
 ## Estrutura do Projeto
 
 ```
@@ -252,6 +361,7 @@ autodoc/
   web/servidor.py   # servidor local: API e eventos que alimentam a tela
   web/janela.py     # janela nativa do sistema
   web/estatico/     # as telas (HTML, CSS, JS, fontes)
+  gestos/           # gestos pela webcam: mouse, quadro de desenho, Tetris e avatar 3D (opcional)
 site/               # landing page, publicável sozinha
 exemplos/           # documentos fictícios para experimentar
 recursos/           # ícone do aplicativo em cada formato
@@ -313,11 +423,25 @@ Além do escopo original da proposta, esta base inclui:
 - **Funcionamento offline**: as fontes ficam versionadas no projeto, então nada depende de internet.
 - **Modo demonstração** em todas as telas, para apresentar o sistema sem instalá-lo.
 - **Detecção de sistema operacional** na landing, oferecendo o download correspondente.
+- **Controle do mouse por gestos**, pela webcam, no Windows, no macOS e no Linux — mover, clicar, arrastar, rolar, volume e brilho. Opcional, com dependências à parte.
+- **Quadro de desenho por gestos**, para treinar e calibrar os gestos sem entregar o mouse do sistema a eles.
+- **Tetris comandado pela mão**, aberto por um botão no próprio AutoDoc, com instalação dos gestos pelo app.
+- **Avatar 3D** que substitui a pessoa na tela e copia cabeça, rosto, braços e mãos — sem nenhuma imagem da câmera sair do programa.
+- **Máscara de emoji sobre o rosto**, como reserva para máquinas sem 3D, cobrindo todo rosto que aparecer na câmera.
+- **Permissão de câmera do próprio AutoDoc no macOS**, e o app rodando nativo no chip Apple em vez de emulado.
 
 ## O que ainda não está pronto
 
 Registrado aqui porque um projeto que só lista o que funciona não ajuda quem vai
 continuá-lo:
+
+- **Avatar 3D ao vivo.** Foi conferido com fotos (a pose calculada de uma foto,
+  desenhada no personagem), não com uma pessoa jogando na frente da câmera. Os
+  limites das expressões e a suavização ainda precisam desse teste.
+- **Mais personagens 3D.** Só o vira-lata caramelo existe; os próximos
+  planejados são capivara, onça-pintada, mico-leão-dourado, tucano, arara-azul,
+  preguiça, boto-cor-de-rosa, tamanduá, lobo-guará, sapo e Saci. Pessoas reais
+  ficam de fora de propósito, por causa do direito de imagem.
 
 - **O pacote para baixar pela landing.** Hoje a instalação é feita a partir do
   repositório, com `python3 instalar.py`. Falta empacotar isso num arquivo que a
@@ -344,6 +468,12 @@ continuá-lo:
   o que é imediato para as centenas de documentos que uma pessoa acumula. Para
   dezenas de milhares o texto completo na memória passaria a incomodar, e aí
   valeria guardar o texto fora da ficha.
+- **Controle por gestos.** No Mac foi verificado com as bibliotecas reais —
+  detecção numa foto, desenho do quadro, leitura e escrita de volume e brilho —,
+  mas não com a webcam ao vivo. Windows e Linux estão cobertos por testes com o
+  sistema simulado, não numa máquina de verdade. Os limiares da pinça
+  (`PINCA_FECHA`, `PINCA_ABRE`) e a área da câmera (`AREA`) são estimativas a
+  calibrar no quadro de desenho, que mostra as medidas ao vivo.
 - **Data por rótulo em texto muito corrido.** A distância entre o rótulo e a data
   é medida depois de juntar os espaços, então um rótulo seguido de muitas
   palavras ainda pode alcançar uma data que não é dele.
