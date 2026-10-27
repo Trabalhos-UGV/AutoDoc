@@ -14,6 +14,7 @@ import math
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -92,6 +93,18 @@ class TestClassificar(unittest.TestCase):
         pontos = montar_mao()
         pontos[4] = ponto(0.465, 0.4)
         self.assertEqual(classificar(pontos), Gesto.PINCA_MEDIO)
+
+    def test_vale_o_dedo_claramente_mais_perto(self):
+        # Entre os dois, sem vantagem clara: nao e pinca de nenhum.
+        pontos = montar_mao()
+        pontos[4] = ponto(0.46, 0.39)
+        self.assertEqual(classificar(pontos), Gesto.MOVER)
+
+    def test_pinca_do_indicador_vira_do_medio(self):
+        """Colado no medio, o polegar ainda esta perto do indicador: antes, a histerese o prendia la."""
+        pontos = montar_mao(pinca="medio")
+        self.assertEqual(classificar(pontos, Gesto.PINCA_INDICADOR), Gesto.PINCA_MEDIO)
+        self.assertEqual(classificar(montar_mao(pinca="indicador"), Gesto.PINCA_MEDIO), Gesto.PINCA_INDICADOR)
 
     def test_histerese(self):
         meio_termo = (PINCA_FECHA + PINCA_ABRE) / 2
@@ -279,6 +292,11 @@ class TestControlador(unittest.TestCase):
         self.quadro(Gesto.PINCA_INDICADOR)
         self.quadro(Gesto.PINCA_INDICADOR, montar_mao(y=0.05))
         self.mouse.mouseDown.assert_called_once()
+
+    def test_pinca_que_vira_do_medio_nao_da_clique_esquerdo(self):
+        self.quadro(Gesto.PINCA_INDICADOR)
+        self.quadro(Gesto.PINCA_MEDIO)
+        self.mouse.click.assert_called_once_with(button="right")
 
     def test_pinca_do_medio_e_clique_direito_uma_vez(self):
         for _ in range(5):
@@ -478,6 +496,143 @@ class TestSistema(unittest.TestCase):
                 sistema.Linux(None).ajustar_volume(0.1)
 
 
+class AVFoundationFalso:
+    """O pedaco do AVFoundation que o AutoDoc usa, com respostas escolhidas."""
+
+    def __init__(self, situacoes, responde=True):
+        self.situacoes = list(situacoes)
+        self.responde = responde
+        self.pedidos = 0
+        self.AVMediaTypeVideo = "vide"
+        self.AVCaptureDevice = self
+
+    def authorizationStatusForMediaType_(self, tipo):
+        return self.situacoes.pop(0)
+
+    def requestAccessForMediaType_completionHandler_(self, tipo, resposta):
+        self.pedidos += 1
+        if self.responde:
+            threading.Thread(target=resposta, args=(True,)).start()
+
+
+class RegistroFalso:
+    """O winreg, com os valores da chave da camera escolhidos por subchave."""
+
+    HKEY_CURRENT_USER = "HKCU"
+
+    def __init__(self, valores):
+        self.valores = valores
+
+    @contextlib.contextmanager
+    def OpenKey(self, raiz, caminho):
+        subchave = caminho.rsplit("\\", 1)[-1]
+        if subchave not in self.valores:
+            raise OSError("chave nao existe")
+        yield subchave
+
+    def QueryValueEx(self, chave, nome):
+        return self.valores[chave], 1
+
+
+class TestCameraPorSistema(unittest.TestCase):
+    def macos(self, avfoundation):
+        with (
+            mock.patch.dict(sys.modules, {"AVFoundation": avfoundation}),
+            mock.patch.object(sistema.subprocess, "run") as rodar,
+        ):
+            try:
+                sistema.MacOS(None).preparar_camera()
+                return None, rodar
+            except RecursoIndisponivel as erro:
+                return erro, rodar
+
+    def test_macos_ja_autorizado_nao_pergunta(self):
+        falso = AVFoundationFalso([3])
+        erro, rodar = self.macos(falso)
+        self.assertIsNone(erro)
+        self.assertEqual(falso.pedidos, 0)
+        rodar.assert_not_called()
+
+    def test_macos_pergunta_e_espera_a_resposta(self):
+        falso = AVFoundationFalso([0, 3])
+        erro, _ = self.macos(falso)
+        self.assertIsNone(erro)
+        self.assertEqual(falso.pedidos, 1)
+
+    def test_macos_negado_abre_os_ajustes_da_camera(self):
+        erro, rodar = self.macos(AVFoundationFalso([2]))
+        self.assertIn("Privacidade e Segurança > Câmera", str(erro))
+        self.assertEqual(rodar.call_args.args[0], ["open", sistema.MacOS.AJUSTES_CAMERA])
+
+    def test_macos_sem_resposta_tambem_avisa(self):
+        with mock.patch.object(sistema.MacOS, "ESPERA_PERMISSAO", 0.01):
+            erro, _ = self.macos(AVFoundationFalso([0, 0], responde=False))
+        self.assertIsNotNone(erro)
+
+    def test_macos_sem_avfoundation_deixa_com_o_opencv(self):
+        erro, rodar = self.macos(None)
+        self.assertIsNone(erro)
+        rodar.assert_not_called()
+
+    def windows(self, valores):
+        with (
+            mock.patch.dict(sys.modules, {"winreg": RegistroFalso(valores)}),
+            mock.patch.object(sistema.subprocess, "run") as rodar,
+        ):
+            try:
+                sistema.Windows(None).preparar_camera()
+                return None, rodar
+            except RecursoIndisponivel as erro:
+                return erro, rodar
+
+    def test_windows_liberado(self):
+        erro, rodar = self.windows({"webcam": "Allow", "NonPackaged": "Allow"})
+        self.assertIsNone(erro)
+        rodar.assert_not_called()
+
+    def test_windows_sem_as_chaves(self):
+        self.assertIsNone(self.windows({})[0])
+
+    def test_windows_bloqueado_para_programas_de_mesa(self):
+        erro, rodar = self.windows({"webcam": "Allow", "NonPackaged": "Deny"})
+        self.assertIn("aplicativos da área de trabalho", str(erro))
+        self.assertEqual(rodar.call_args.args[0], ["explorer.exe", "ms-settings:privacy-webcam"])
+
+    def test_windows_bloqueado_por_inteiro(self):
+        self.assertIsNotNone(self.windows({"webcam": "Deny"})[0])
+
+    def linux(self, arquivos, permitido=True):
+        temporaria = tempfile.TemporaryDirectory()
+        self.addCleanup(temporaria.cleanup)
+        pasta = Path(temporaria.name)
+        for nome in arquivos:
+            (pasta / nome).write_text("")
+        linux = sistema.Linux(None)
+        linux.DISPOSITIVOS = pasta
+        with mock.patch.object(sistema.os, "access", return_value=permitido):
+            try:
+                linux.preparar_camera()
+            except RecursoIndisponivel as erro:
+                return erro
+        return None
+
+    def test_linux_com_camera(self):
+        self.assertIsNone(self.linux(["video0", "tty1"]))
+
+    def test_linux_sem_camera(self):
+        self.assertIn("nenhuma câmera", str(self.linux(["tty1"])))
+
+    def test_linux_sem_permissao_explica_o_grupo(self):
+        self.assertIn("usermod -aG video", str(self.linux(["video0"], permitido=False)))
+
+    def test_dicas(self):
+        self.assertEqual(sistema.Sistema(None).dica_camera(), "")
+        sistema.Sistema(None).preparar_camera()
+        self.assertIn("Ajustes do Sistema", sistema.MacOS(None).dica_camera())
+        self.assertIn("área de trabalho", sistema.Windows(None).dica_camera())
+        self.assertIn("grupo video", sistema.Linux(None).dica_camera())
+
+
 class TestModelo(unittest.TestCase):
     def setUp(self):
         temporaria = tempfile.TemporaryDirectory()
@@ -535,6 +690,19 @@ class TestDependencias(unittest.TestCase):
                 camera.importar_visao()
             with self.assertRaisesRegex(GestosIndisponiveis, "pyautogui"):
                 camera.importar_mouse()
+
+    def test_erro_de_importacao_sem_nome(self):
+        """O OpenCV sem numpy levanta ImportError sem nome; a mensagem saia "falta None"."""
+        importar = __import__
+
+        def falhar(nome, *argumentos, **opcoes):
+            if nome == "cv2":
+                raise ImportError("OpenCV bindings requires numpy")
+            return importar(nome, *argumentos, **opcoes)
+
+        with mock.patch("builtins.__import__", side_effect=falhar):
+            with self.assertRaisesRegex(GestosIndisponiveis, "falta OpenCV bindings requires numpy"):
+                camera.importar_visao()
 
     def test_com_dependencias(self):
         falsos = {nome: mock.MagicMock() for nome in ("cv2", "mediapipe", "pyautogui", "mediapipe.tasks", "mediapipe.tasks.python")}
@@ -610,6 +778,8 @@ class ComCameraFalsa(unittest.TestCase):
         pilha = contextlib.ExitStack()
         self.addCleanup(pilha.close)
         pilha.enter_context(mock.patch.object(camera, "obter_modelo", return_value=Path("modelo.task")))
+        # Sistema neutro: os testes nao podem pedir a camera de verdade ao macOS.
+        pilha.enter_context(mock.patch.object(camera, "sistema_atual", return_value=sistema.Sistema(None)))
         pilha.enter_context(contextlib.redirect_stdout(io.StringIO()))
         # O relogio anda 0,1 s por quadro, para tocar e segurar terem duracao.
         relogio = iter(i / 10 for i in range(1000))
@@ -623,8 +793,32 @@ class TestSessao(ComCameraFalsa):
 
     def test_camera_que_nao_abre(self):
         self.montar([], aberta=False)
-        with self.assertRaisesRegex(GestosIndisponiveis, "camera 0"):
+        with self.assertRaisesRegex(GestosIndisponiveis, "câmera 0"):
             self.sessao()
+
+    def test_sistema_que_nao_deixa_nem_tenta_abrir(self):
+        self.montar([])
+        bloqueado = mock.Mock(preparar_camera=mock.Mock(side_effect=RecursoIndisponivel("o Windows está bloqueando a câmera")))
+        with mock.patch.object(camera, "sistema_atual", return_value=bloqueado):
+            with self.assertRaisesRegex(GestosIndisponiveis, "bloqueando"):
+                self.sessao()
+        self.cv2.VideoCapture.assert_not_called()
+
+    def test_mensagem_traz_a_dica_do_sistema(self):
+        self.montar([], aberta=False)
+        com_dica = mock.Mock(dica_camera=lambda: " e veja os Ajustes")
+        with mock.patch.object(camera, "sistema_atual", return_value=com_dica):
+            with self.assertRaisesRegex(GestosIndisponiveis, "câmera 0.* e veja os Ajustes"):
+                self.sessao()
+
+    def test_windows_tenta_o_directshow(self):
+        self.montar([])
+        fechada = CameraFalsa([], aberta=False)
+        self.cv2.VideoCapture.side_effect = [fechada, self.webcam]
+        with mock.patch.object(camera.sys, "platform", "win32"):
+            sessao = self.sessao()
+        self.assertIs(sessao.captura, self.webcam)
+        self.assertEqual(self.cv2.VideoCapture.call_args.args, (0, self.cv2.CAP_DSHOW))
 
     def test_modelo_que_falha_solta_a_camera(self):
         self.montar([])
@@ -643,6 +837,18 @@ class TestSessao(ComCameraFalsa):
         self.assertAlmostEqual(maos[0][1][0].x, direita[0].x)
         self.assertTrue(self.webcam.solta)
         self.detector.close.assert_called_once_with()
+
+    def test_guarda_a_imagem_crua_e_as_maos_em_metros(self):
+        direita = montar_mao()
+        self.montar([[("Right", direita)]])
+        self.detector.detect_for_video.side_effect = None
+        self.detector.detect_for_video.return_value = SimpleNamespace(
+            handedness=[[Rotulo("Right")]], hand_landmarks=[direita], hand_world_landmarks=["mundo"]
+        )
+        with self.sessao() as sessao:
+            next(sessao.quadros())
+        self.assertIs(sessao.rgb_crua, self.cv2.cvtColor.return_value)
+        self.assertEqual(sessao.detector.mundo, [("Right", "mundo")])
 
     def test_camera_que_para_de_mandar_imagem(self):
         self.montar([], lidos=[False] * (camera.FALHAS_TOLERADAS + 1))
@@ -809,6 +1015,19 @@ class TestComando(unittest.TestCase):
         with mock.patch.object(main.quadro_gestos, "executar_quadro", return_value=0) as executar:
             self.assertEqual(main.main(["gestos", "--quadro"]), 0)
         executar.assert_called_once_with(0, True)
+
+    def test_tetris_com_e_sem_camera(self):
+        with mock.patch.object(main.camera_tetris, "jogar_com_camera", return_value=0) as com_camera:
+            self.assertEqual(main.main(["gestos", "--tetris", "--canhoto"]), 0)
+        com_camera.assert_called_once_with(0, False)
+        with mock.patch.object(main.servidor_tetris, "jogar_pelo_teclado", return_value=0) as pelo_teclado:
+            self.assertEqual(main.main(["gestos", "--tetris", "--sem-camera"]), 0)
+        pelo_teclado.assert_called_once_with()
+
+    def test_opcoes_que_nao_combinam(self):
+        for argumentos in (["gestos", "--tetris", "--quadro"], ["gestos", "--sem-camera"]):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main.main(argumentos)
 
     def test_gestos_indisponiveis(self):
         erro = GestosIndisponiveis("falta cv2")

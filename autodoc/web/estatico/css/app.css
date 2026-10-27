@@ -126,6 +126,68 @@
 .lateral__estado dd { margin: 0; color: var(--ad-texto); }
 .lateral__ok { color: var(--ad-verde); }
 
+/* ------------------------------------------------------------- jogo */
+
+/* O botão do Tetris. É um cartão clicável e não um botão amarelo: o AutoDoc
+   é um organizador de documentos, e o jogo é um extra — não pode gritar mais
+   alto que a busca. */
+.jogo__botao {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--ad-borda-forte);
+  border-radius: 10px;
+  background: var(--ad-cartao);
+  color: var(--ad-tinta);
+  font-family: var(--ad-sans);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.jogo__botao:hover:not(:disabled) { border-color: var(--ad-acento); background: var(--ad-barra); }
+.jogo__botao:disabled { cursor: default; }
+.jogo__botao:disabled .jogo__icone { opacity: 0.45; }
+
+.jogo__icone { width: 30px; height: 20px; flex: none; fill: var(--ad-acento); }
+
+.jogo__textos { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.jogo__titulo { font-size: 13px; font-weight: 600; }
+.jogo__sub {
+  font-size: 11.5px;
+  color: var(--ad-fraco);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tetris aberto: o ícone pulsa, como o "watchdog ativo". */
+.jogo[data-situacao='aberto'] .jogo__icone { fill: var(--ad-verde); opacity: 1; animation: ad-pulso 2s ease-in-out infinite; }
+.jogo[data-situacao='instalando'] .jogo__icone { animation: ad-pulso 1.2s ease-in-out infinite; opacity: 1; }
+
+.jogo__teclado {
+  align-self: flex-start;
+  padding: 0 8px;
+  border: none;
+  background: none;
+  font-family: var(--ad-sans);
+  font-size: 11.5px;
+  color: var(--ad-fraco);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.jogo__teclado:hover { color: var(--ad-acento); }
+
+.jogo__recado {
+  margin: 0;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ad-acento);
+}
+
 /* ----------------------------------------------------------- centro */
 
 .centro {

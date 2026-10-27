@@ -24,9 +24,12 @@ Cada ajuste recebe um delta entre -1 e 1 sobre o valor atual, ja que o gesto e
 from __future__ import annotations
 
 import ctypes
+import os
 import shutil
 import subprocess
 import sys
+import threading
+from pathlib import Path
 
 
 class RecursoIndisponivel(RuntimeError):
@@ -70,6 +73,17 @@ class Sistema:
         """O que a pessoa precisa liberar antes de os gestos funcionarem."""
         return []
 
+    def preparar_camera(self) -> None:
+        """Antes de abrir a camera: garante que o sistema deixa.
+
+        Levanta `RecursoIndisponivel` dizendo o que fazer, em vez de deixar o
+        OpenCV falhar com "camera failed to properly initialize".
+        """
+
+    def dica_camera(self) -> str:
+        """Onde procurar quando a camera nao abre, para completar a mensagem."""
+        return ""
+
 
 class Windows(Sistema):
     nome = "Windows"
@@ -91,6 +105,31 @@ class Windows(Sistema):
     def ajustar_brilho(self, delta: float) -> None:
         _brilho_por_sbc(delta)
 
+    # Programa de mesa nao recebe pergunta de permissao no Windows: vale o que
+    # estiver nas Configuracoes, e o OpenCV so falha. Ler o registro antes diz
+    # se o bloqueio e de la, e leva a pessoa direto para a chave certa.
+    CHAVE_CAMERA = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam"
+    AJUSTES_CAMERA = "ms-settings:privacy-webcam"
+
+    def preparar_camera(self) -> None:
+        import winreg
+
+        for subchave in ("", "\\NonPackaged"):  # a geral e a dos aplicativos da area de trabalho
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.CHAVE_CAMERA + subchave) as chave:
+                    valor, _ = winreg.QueryValueEx(chave, "Value")
+            except OSError:
+                continue
+            if valor == "Deny":
+                subprocess.run(["explorer.exe", self.AJUSTES_CAMERA], check=False)
+                raise RecursoIndisponivel(
+                    "o Windows está bloqueando a câmera. Em Configurações > Privacidade e segurança > Câmera, "
+                    "ligue o acesso à câmera e \"Permitir que aplicativos da área de trabalho acessem a câmera\"."
+                )
+
+    def dica_camera(self) -> str:
+        return " e se as Configurações > Privacidade e segurança > Câmera deixam aplicativos da área de trabalho usá-la"
+
 
 class MacOS(Sistema):
     nome = "macOS"
@@ -100,6 +139,39 @@ class MacOS(Sistema):
     CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
     APPLICATION_SERVICES = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
     AJUSTES_ACESSIBILIDADE = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+    AJUSTES_CAMERA = "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
+
+    # Quanto esperar a pessoa responder a pergunta da camera.
+    ESPERA_PERMISSAO = 120
+
+    def preparar_camera(self) -> None:
+        """Pede a camera ao macOS e espera a resposta.
+
+        O OpenCV tambem pede, mas desiste na hora, sem esperar: a pergunta
+        aparecia, a pessoa permitia, e o jogo ja tinha fechado — era preciso
+        abrir de novo. Aqui a pergunta e feita antes, e so se segue depois da
+        resposta. Sem o PyObjC do AVFoundation, fica com o jeito do OpenCV.
+        """
+        try:
+            from AVFoundation import AVCaptureDevice, AVMediaTypeVideo
+        except ImportError:
+            return
+        autorizada, nao_perguntada = 3, 0
+        situacao = AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeVideo)
+        if situacao == nao_perguntada:
+            resposta = threading.Event()
+            AVCaptureDevice.requestAccessForMediaType_completionHandler_(AVMediaTypeVideo, lambda _concedida: resposta.set())
+            resposta.wait(self.ESPERA_PERMISSAO)
+            situacao = AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeVideo)
+        if situacao != autorizada:
+            subprocess.run(["open", self.AJUSTES_CAMERA], check=False)
+            raise RecursoIndisponivel(
+                "o macOS não deixou o AutoDoc usar a câmera. Em Ajustes do Sistema > Privacidade e Segurança > "
+                "Câmera, ative o AutoDoc e abra o jogo de novo."
+            )
+
+    def dica_camera(self) -> str:
+        return " e se o AutoDoc tem acesso em Ajustes do Sistema > Privacidade e Segurança > Câmera"
 
     def clique_duplo(self, x: int, y: int) -> None:
         import Quartz  # vem com o PyAutoGUI no macOS
@@ -170,6 +242,22 @@ class Linux(Sistema):
 
     def ajustar_brilho(self, delta: float) -> None:
         _brilho_por_sbc(delta)
+
+    DISPOSITIVOS = Path("/dev")
+
+    def preparar_camera(self) -> None:
+        """No Linux a camera e um arquivo, /dev/video0; o que falta costuma ser permissao nele."""
+        cameras = sorted(self.DISPOSITIVOS.glob("video*"))
+        if not cameras:
+            raise RecursoIndisponivel("nenhuma câmera encontrada (não há /dev/video*). Confira se a webcam está conectada.")
+        if not any(os.access(camera, os.R_OK | os.W_OK) for camera in cameras):
+            raise RecursoIndisponivel(
+                f"seu usuário não tem permissão para usar {cameras[0]}. Rode: sudo usermod -aG video $USER "
+                "e entre de novo na sessão."
+            )
+
+    def dica_camera(self) -> str:
+        return " e se seu usuário está no grupo video"
 
 
 def _osascript(script: str) -> str:

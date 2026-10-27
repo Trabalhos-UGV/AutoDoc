@@ -57,6 +57,57 @@ class TestPartida(unittest.TestCase):
         self.assertFalse(retrato["camera"])
 
 
+class TestPersonagem(unittest.TestCase):
+    def test_escolhendo_o_jogo_fica_parado_e_o_teclado_nao_comanda(self):
+        partida = partida_parada()
+        partida.escolhendo = True
+        maos = [{"principal": True, "pontos": []}]
+        for i in range(200):
+            partida.passo(i / 60, Gesto.MOVER, montar_mao(), maos)
+        self.assertEqual(partida.jogo.peca.linha, 5)
+        self.assertEqual(partida.maos, maos)  # a mao continua aparecendo
+        self.assertFalse(partida.tecla("ArrowLeft"))
+
+    def test_escolher_comeca_o_jogo(self):
+        partida = partida_parada()
+        partida.escolhendo = True
+        self.assertTrue(partida.escolher_personagem("sapo"))
+        self.assertEqual((partida.personagem, partida.escolhendo), ("sapo", False))
+        self.assertFalse(partida.escolher_personagem("dragao"))
+        self.assertEqual(partida.personagem, "sapo")
+
+    def test_trocar_volta_para_a_escolha(self):
+        partida = partida_parada()
+        partida.trocar_personagem()
+        retrato = partida.retrato()
+        self.assertTrue(retrato["escolhendo"])
+        self.assertEqual(len(retrato["personagens"]), 15)
+
+
+class TestAvatar(unittest.TestCase):
+    def test_pose_vai_no_retrato_mesmo_escolhendo(self):
+        partida = partida_parada()
+        partida.avatar, partida.escolhendo = True, True
+        partida.passo(0.0, Gesto.MOVER, montar_mao(), [], pose={"cabeca": "girada"})
+        retrato = partida.retrato()
+        self.assertEqual((retrato["avatar"], retrato["pose"]), (True, {"cabeca": "girada"}))
+        self.assertEqual(retrato["personagens"], [{"nome": "caramelo", "rotulo": "Vira-lata caramelo"}])
+
+    def test_com_avatar_so_aceita_personagem_3d(self):
+        partida = partida_parada()
+        partida.avatar = True
+        self.assertFalse(partida.escolher_personagem("panda"))
+        self.assertTrue(partida.escolher_personagem("caramelo"))
+
+    def test_desligar_volta_para_a_mascara(self):
+        partida = partida_parada()
+        partida.avatar, partida.personagem, partida.pose = True, "caramelo", {"qualquer": 1}
+        partida.desligar_avatar()
+        self.assertEqual((partida.avatar, partida.pose, partida.personagem), (False, None, "cachorro"))
+        partida.desligar_avatar()  # de novo: nada muda
+        self.assertEqual(partida.personagem, "cachorro")
+
+
 class TestRotas(unittest.TestCase):
     def setUp(self):
         self.partida = partida_parada()
@@ -69,6 +120,15 @@ class TestRotas(unittest.TestCase):
         pedido = urllib.request.Request(self.url + rota, data=dados, method="POST" if corpo is not None else "GET")
         with urllib.request.urlopen(pedido, timeout=5) as resposta:
             return resposta.status, resposta.read()
+
+    def test_raiz_e_a_tela_do_tetris(self):
+        status, corpo = self.pedir("")
+        self.assertEqual(status, 200)
+        self.assertIn(b"js/tetris.js", corpo)
+
+    def test_formas_vao_junto_para_a_tela(self):
+        _, corpo = self.pedir("api/estado")
+        self.assertEqual(json.loads(corpo)["formas"]["O"], [[0, 1], [0, 2], [1, 1], [1, 2]])
 
     def test_serve_os_arquivos_das_telas(self):
         status, corpo = self.pedir("css/base.css")
@@ -85,6 +145,24 @@ class TestRotas(unittest.TestCase):
         self.assertEqual(self.partida.jogo.peca.coluna, 2)
         _, corpo = self.pedir("api/tecla", {})
         self.assertEqual(json.loads(corpo), {"aceita": False})
+
+    def test_escolher_e_trocar_pela_rede(self):
+        _, corpo = self.pedir("api/personagem", {"nome": "raposa"})
+        self.assertEqual(json.loads(corpo)["personagem"], "raposa")
+        _, corpo = self.pedir("api/personagem/trocar", {})
+        self.assertTrue(json.loads(corpo)["escolhendo"])
+        with self.assertRaises(urllib.error.HTTPError) as erro:
+            self.pedir("api/personagem", {"nome": "dragao"})
+        self.assertEqual(erro.exception.code, 400)
+
+    def test_desligar_o_avatar_pela_rede(self):
+        self.partida.avatar = True
+        _, corpo = self.pedir("api/avatar/desligar", {})
+        self.assertFalse(json.loads(corpo)["avatar"])
+
+    def test_imagem_do_personagem_e_servida(self):
+        status, corpo = self.pedir("personagens/panda.png")
+        self.assertEqual((status, corpo[:4]), (200, b"\x89PNG"))
 
     def test_rotas_desconhecidas(self):
         for rota, corpo in (("api/nada", None), ("api/nada", {})):
@@ -131,6 +209,77 @@ class TestRotas(unittest.TestCase):
         self.assertEqual(self.servidor._ouvintes, [])
 
 
+class TestCamera(unittest.TestCase):
+    def setUp(self):
+        self.servidor = ServidorTetris(partida_parada(), porta=18778)
+        self.url = self.servidor.iniciar()
+        self.addCleanup(self.servidor.parar)
+
+    def test_retrato_leva_os_ossos_da_mao(self):
+        retrato = self.servidor.partida.retrato()
+        self.assertEqual(len(retrato["conexoes"]), 21)
+        self.assertIsNone(retrato["camera_tamanho"])
+
+    def test_espera_sem_quadro_novo_devolve_none(self):
+        self.assertIsNone(self.servidor.esperar_imagem(None, espera=0.05))
+        self.servidor.publicar_imagem(b"um")
+        self.assertEqual(self.servidor.esperar_imagem(None, espera=0.05), b"um")
+        self.assertIsNone(self.servidor.esperar_imagem(b"um", espera=0.05))
+
+    def test_mjpeg_entrega_o_quadro_mais_novo(self):
+        recebido = []
+
+        def assistir():
+            with urllib.request.urlopen(self.url + "api/camera.mjpg", timeout=5) as fluxo:
+                recebido.append(fluxo.headers["Content-Type"])
+                while len(recebido) < 3:
+                    linha = fluxo.readline()
+                    if linha.startswith(b"Content-Length:"):
+                        tamanho = int(linha.split(b":")[1])
+                        fluxo.readline()
+                        recebido.append(fluxo.read(tamanho))
+
+        assistente = threading.Thread(target=assistir, daemon=True)
+        assistente.start()
+        time.sleep(0.2)
+        for quadro in (b"\xff\xd8primeiro", b"\xff\xd8segundo"):
+            self.servidor.publicar_imagem(quadro)
+            time.sleep(0.15)
+        assistente.join(5)
+        self.assertEqual(recebido, ["multipart/x-mixed-replace; boundary=quadro", b"\xff\xd8primeiro", b"\xff\xd8segundo"])
+
+    def test_parar_encerra_a_transmissao(self):
+        terminou = threading.Event()
+
+        def assistir():
+            try:
+                with urllib.request.urlopen(self.url + "api/camera.mjpg", timeout=5) as fluxo:
+                    fluxo.read()
+            except OSError:
+                pass
+            terminou.set()
+
+        threading.Thread(target=assistir, daemon=True).start()
+        time.sleep(0.2)
+        self.servidor.parar()
+        self.assertTrue(terminou.wait(3))
+
+    def test_tela_fechada_no_meio_da_transmissao(self):
+        fluxo = urllib.request.urlopen(self.url + "api/camera.mjpg", timeout=5)
+        self.servidor.publicar_imagem(b"\xff\xd8a")
+        time.sleep(0.1)
+        fluxo.close()
+        for numero in range(20):
+            self.servidor.publicar_imagem(b"\xff\xd8" + bytes([numero]) * 70000)
+            time.sleep(0.02)
+        # Chegar aqui sem o servidor travar e o que se testa.
+        self.assertEqual(self.pedir_estado()["peca"]["tipo"], "T")
+
+    def pedir_estado(self):
+        with urllib.request.urlopen(self.url + "api/estado", timeout=5) as resposta:
+            return json.loads(resposta.read())
+
+
 class EventoContado:
     """Um `threading.Event` que se arma sozinho depois de algumas esperas."""
 
@@ -153,6 +302,29 @@ class TestSemCamera(unittest.TestCase):
         rodar_sem_camera(partida, servidor, EventoContado(120), relogio=lambda: next(tempos))
         self.assertEqual(partida.jogo.peca.linha, 6)  # dois segundos de jogo
         self.assertAlmostEqual(len(publicados), 60, delta=2)
+
+
+class TestJanela(unittest.TestCase):
+    def test_abre_a_janela_e_desce_tudo_ao_fechar(self):
+        from unittest import mock
+
+        from autodoc.gestos import servidor_tetris
+
+        vistos = {}
+
+        def abrir(url, titulo):
+            # Com a janela "aberta", o servidor responde e o jogo anda.
+            with urllib.request.urlopen(url + "api/estado", timeout=5) as resposta:
+                vistos["estado"] = json.loads(resposta.read())
+            vistos["titulo"] = titulo
+            return "nativa"
+
+        with mock.patch("autodoc.web.janela.abrir", side_effect=abrir):
+            self.assertEqual(servidor_tetris.jogar_pelo_teclado(porta=18768), 0)
+        self.assertEqual(vistos["titulo"], "AutoDoc — Tetris")
+        self.assertFalse(vistos["estado"]["camera"])
+        with self.assertRaises(urllib.error.URLError):
+            urllib.request.urlopen("http://127.0.0.1:18768/api/estado", timeout=1)
 
 
 if __name__ == "__main__":

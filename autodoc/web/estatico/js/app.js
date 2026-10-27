@@ -14,6 +14,7 @@ import {
   ESTATISTICAS,
   PASTA_MONITORADA,
 } from './dados-demo.js';
+import { iniciarJogo } from './jogo.js';
 import { detectarModo, estadoDoServidor } from './modo.js';
 
 const ESPERA_BUSCA = 180; // ms de silêncio antes de consultar
@@ -433,6 +434,7 @@ function ouvirNovidades() {
 /* ------------------------------------------------------------- início */
 
 modo = await detectarModo();
+iniciarJogo(modo);
 
 if (modo === 'real') {
   // Nada de demonstração sobrevive ao modo real. Sem isto a tela abria com os

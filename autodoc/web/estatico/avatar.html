@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoDoc — personagens</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/avatar.css">
+<!-- O three.js mora em vendor/; os módulos dele pedem "three" pelo nome. -->
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.min.js" } }</script>
+</head>
+<body>
+
+<!-- Vitrine dos personagens: cada um em pose de demonstração, sem câmera.
+     Serve para desenvolver e para mostrar os personagens sem jogar. -->
+<main class="vitrine">
+  <header class="vitrine__topo">
+    <span class="vitrine__sigla" aria-hidden="true">A</span>
+    <h1 class="vitrine__titulo">Personagens <span data-nome></span></h1>
+  </header>
+  <div class="palco">
+    <canvas class="palco__tela" data-palco aria-label="Personagem 3D" role="img"></canvas>
+  </div>
+</main>
+
+<script type="module" src="js/vitrine.js"></script>
+</body>
+</html>

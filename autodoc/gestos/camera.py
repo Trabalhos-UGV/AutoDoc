@@ -34,7 +34,7 @@ from pathlib import Path
 from autodoc.gestos import GestosIndisponiveis
 from autodoc.gestos.controle import Controlador
 from autodoc.gestos.reconhecimento import Gesto, Mao, aberturas, espelhar, separar_maos
-from autodoc.gestos.sistema import sistema_atual
+from autodoc.gestos.sistema import RecursoIndisponivel, sistema_atual
 
 logger = logging.getLogger(__name__)
 
@@ -66,23 +66,26 @@ def pasta_cache(plataforma: str | None = None) -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "autodoc"
 
 
-def obter_modelo(destino: Path | None = None) -> Path:
-    """O caminho do modelo, baixando-o se ainda nao estiver no cache."""
+def obter_modelo(destino: Path | None = None, url: str = URL_MODELO, descricao: str = "o modelo da mao (7,8 MB)") -> Path:
+    """O caminho do modelo, baixando-o se ainda nao estiver no cache.
+
+    O padrao e o da mao; a mascara do Tetris usa o mesmo caminho para o do rosto.
+    """
     destino = destino or pasta_cache() / "hand_landmarker.task"
     if destino.exists():
         return destino
 
     destino.parent.mkdir(parents=True, exist_ok=True)
     parcial = destino.with_suffix(".parcial")
-    print("baixando o modelo da mao (7,8 MB, so na primeira vez)...")
+    print(f"baixando {descricao}, so na primeira vez...")
     try:
         if shutil.which("curl"):
-            subprocess.run(["curl", "-fsSL", "-o", str(parcial), URL_MODELO], check=True)
+            subprocess.run(["curl", "-fsSL", "-o", str(parcial), url], check=True)
         else:
-            urllib.request.urlretrieve(URL_MODELO, parcial)
+            urllib.request.urlretrieve(url, parcial)
     except (OSError, subprocess.CalledProcessError) as erro:
         parcial.unlink(missing_ok=True)
-        raise GestosIndisponiveis(f"nao consegui baixar o modelo da mao: {erro}") from erro
+        raise GestosIndisponiveis(f"nao consegui baixar {descricao}: {erro}") from erro
     # Renomear so no fim: download interrompido nao deixa modelo pela metade.
     parcial.replace(destino)
     return destino
@@ -95,7 +98,9 @@ def importar_visao():
         import mediapipe
         from mediapipe.tasks.python import BaseOptions, vision
     except ImportError as erro:
-        raise GestosIndisponiveis(f"falta {erro.name}; rode: {INSTALAR}") from erro
+        # Nem todo ImportError diz o nome do que faltou: o do OpenCV sem numpy
+        # vem sem nome, e a mensagem saia "falta None".
+        raise GestosIndisponiveis(f"falta {erro.name or erro}; rode: {INSTALAR}") from erro
     return cv2, mediapipe, BaseOptions, vision
 
 
@@ -122,6 +127,9 @@ class Detector:
         )
         self._detector = vision.HandLandmarker.create_from_options(opcoes)
         self._ultimo_ms = -1
+        # Os mesmos pontos em metros, na imagem crua, do ultimo quadro: o
+        # avatar 3D precisa da mao em tres dimensoes, nao so na tela.
+        self.mundo: list[tuple[str, list]] = []
 
     def detectar(self, quadro_rgb) -> list[tuple[str, list]]:
         """As maos de um quadro NAO espelhado, com os pontos ja espelhados."""
@@ -130,6 +138,10 @@ class Detector:
         self._ultimo_ms = agora
         imagem = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=quadro_rgb)
         resultado = self._detector.detect_for_video(imagem, agora)
+        self.mundo = [
+            (lado[0].category_name, pontos)
+            for lado, pontos in zip(resultado.handedness, getattr(resultado, "hand_world_landmarks", []))
+        ]
         return [
             (lado[0].category_name, espelhar(pontos))
             for lado, pontos in zip(resultado.handedness, resultado.hand_landmarks)
@@ -145,11 +157,20 @@ class Sessao:
     def __init__(self, cv2, mediapipe, BaseOptions, vision, camera: int, titulo: str) -> None:
         self.cv2 = cv2
         self.titulo = titulo
+        sistema = sistema_atual(None)
+        try:
+            sistema.preparar_camera()
+        except RecursoIndisponivel as erro:
+            raise GestosIndisponiveis(str(erro)) from erro
+
         self.captura = cv2.VideoCapture(camera)
+        if not self.captura.isOpened() and sys.platform == "win32":
+            # O OpenCV abre pelo Media Foundation no Windows, e algumas webcams
+            # so respondem pelo DirectShow.
+            self.captura = cv2.VideoCapture(camera, cv2.CAP_DSHOW)
         if not self.captura.isOpened():
             raise GestosIndisponiveis(
-                f"nao consegui abrir a camera {camera}. Confira se outro programa a esta usando"
-                + (" e se o aplicativo tem acesso em Ajustes > Privacidade > Camera" if sys.platform == "darwin" else "")
+                f"não consegui abrir a câmera {camera}. Confira se outro programa está usando ela" + sistema.dica_camera()
             )
         try:
             self.detector = Detector(mediapipe, BaseOptions, vision, obter_modelo())
@@ -157,6 +178,9 @@ class Sessao:
             self.captura.release()
             raise
         self.conexoes = self.detector.conexoes
+        # A imagem crua (nao espelhada, em RGB) do ultimo quadro, para quem mais
+        # precisar detectar nela — o rosto e o corpo do avatar.
+        self.rgb_crua = None
 
     def __enter__(self) -> "Sessao":
         return self
@@ -177,7 +201,8 @@ class Sessao:
                     raise GestosIndisponiveis("a camera parou de mandar imagem")
                 continue
             falhas = 0
-            maos = self.detector.detectar(self.cv2.cvtColor(quadro, self.cv2.COLOR_BGR2RGB))
+            self.rgb_crua = self.cv2.cvtColor(quadro, self.cv2.COLOR_BGR2RGB)
+            maos = self.detector.detectar(self.rgb_crua)
             yield self.cv2.flip(quadro, 1), maos, time.monotonic()
 
     def mostrar(self, imagem) -> int | None:

@@ -13,13 +13,14 @@ from autodoc.gestos.comandos_tetris import (
     CONTAGEM_AO_VOLTAR,
     ESPERA_APOS_DESPENCAR,
     QUADROS_PUNHO,
+    ZONA_DESCIDA,
     ColunaDaMao,
     Comandos,
     coluna_da_peca,
 )
 from autodoc.gestos.reconhecimento import Gesto, Mao
 from autodoc.gestos.tetris import Jogo, Peca
-from testes.apoio_gestos import montar_mao
+from testes.apoio_gestos import montar_mao, ponto
 from testes.test_tetris import jogo_com
 
 QUADRO = 1 / 30
@@ -45,6 +46,20 @@ def alcancavel(colunas_da_peca, alvo: int) -> int:
     largura = len(set(colunas_da_peca))
     meio = (largura - 1) // 2
     return min(max(alvo, meio), 10 - largura + meio)
+
+
+def caminho_ate_o_medio(quadros_por_trecho: int = 6) -> list:
+    """O polegar saindo do descanso ate a ponta do medio, cruzando a do indicador."""
+    pontos_do_caminho = [(0.30, 0.70), (0.40, 0.48), (0.445, 0.41), (0.48, 0.40)]
+    deslocamento = x_da_coluna(4) - 0.5
+    trajeto = []
+    for (x0, y0), (x1, y1) in zip(pontos_do_caminho, pontos_do_caminho[1:]):
+        for i in range(quadros_por_trecho):
+            t = i / (quadros_por_trecho - 1)
+            pontos = mao()
+            pontos[4] = ponto(x0 + (x1 - x0) * t + deslocamento, y0 + (y1 - y0) * t)
+            trajeto.append(pontos)
+    return trajeto + [trajeto[-1]] * 4
 
 
 class TestColunaDaMao(unittest.TestCase):
@@ -124,14 +139,32 @@ class TestMover(Partida):
 
 
 class TestGirarEGuardar(Partida):
-    def test_pinca_gira_uma_vez_por_entrada(self):
+    def test_pinca_gira_uma_vez_ao_soltar(self):
         self.preparar(Peca("T", linha=5, coluna=3))
         self.quadros(Gesto.MOVER)
         self.quadros(Gesto.PINCA_INDICADOR, mao(pinca="indicador"), quantos=10)
-        self.assertEqual(self.jogo.peca.rotacao, 1)
+        self.assertEqual(self.jogo.peca.rotacao, 0)  # segurando: ainda nao
         self.quadros(Gesto.MOVER)
+        self.assertEqual(self.jogo.peca.rotacao, 1)
         self.quadros(Gesto.PINCA_INDICADOR, mao(pinca="indicador"))
+        self.quadros(Gesto.MOVER)
         self.assertEqual(self.jogo.peca.rotacao, 2)
+
+    def test_pinca_que_vira_pinca_do_medio_guarda_sem_girar(self):
+        """O polegar passa pelo indicador a caminho do medio."""
+        self.preparar(Peca("T", linha=5, coluna=3))
+        self.quadros(Gesto.MOVER)
+        self.quadros(Gesto.PINCA_INDICADOR, mao(pinca="indicador"), quantos=3)
+        self.quadros(Gesto.PINCA_MEDIO, mao(pinca="medio"), quantos=3)
+        self.quadros(Gesto.MOVER)
+        self.assertEqual(self.jogo.guardada, "T")
+        self.assertEqual(self.jogo.peca.rotacao, 0)
+
+    def test_mao_sumida_no_meio_da_pinca_nao_gira(self):
+        self.preparar(Peca("T", linha=5, coluna=3))
+        self.quadros(Gesto.PINCA_INDICADOR, mao(pinca="indicador"), quantos=3)
+        self.quadros(Gesto.NENHUM, None)
+        self.assertEqual(self.jogo.peca.rotacao, 0)
 
     def test_girar_nao_tira_a_peca_da_coluna(self):
         self.preparar(Peca("T", linha=5, coluna=3))
@@ -260,9 +293,12 @@ class TestTeclado(Partida):
 class TestEstado(Partida):
     def test_estado_do_controle(self):
         self.preparar(Peca("O", linha=5, coluna=3))
-        self.assertEqual(self.comandos.estado(), {"gesto": "sem mao", "alvo": None, "contagem": None})
+        base = {"contagem": None, "descendo": False, "zona_descida": ZONA_DESCIDA}
+        self.assertEqual(self.comandos.estado(), {"gesto": "sem mao", "alvo": None, **base})
         self.quadros(Gesto.MOVER, mao(7))
-        self.assertEqual(self.comandos.estado(), {"gesto": "mover", "alvo": 7, "contagem": None})
+        self.assertEqual(self.comandos.estado(), {"gesto": "mover", "alvo": 7, **base})
+        self.quadros(Gesto.MOVER, mao(7, y=0.2))
+        self.assertTrue(self.comandos.estado()["descendo"])
 
 
 class TestComReconhecimentoDeVerdade(unittest.TestCase):
@@ -279,6 +315,13 @@ class TestComReconhecimentoDeVerdade(unittest.TestCase):
         jogo = jogo_com(Peca("T", linha=5, coluna=3))
         self.jogar(jogo, [mao()] * 3 + [mao(pinca="indicador")] * 8 + [mao()] * 3)
         self.assertEqual(jogo.peca.rotacao, 1)
+
+    def test_polegar_indo_ate_o_medio_de_verdade_guarda(self):
+        """O caminho de verdade: o polegar cruza a ponta do indicador antes do medio."""
+        jogo = jogo_com(Peca("T", linha=5, coluna=3))
+        self.jogar(jogo, [mao()] * 3 + caminho_ate_o_medio() + [mao()] * 4)
+        self.assertEqual(jogo.guardada, "T")
+        self.assertNotIn("girou", [evento["tipo"] for evento in jogo.eventos])
 
     def test_partida_mirando_e_socando(self):
         """Cada peca: mirar uma coluna, esperar chegar, fechar o punho."""

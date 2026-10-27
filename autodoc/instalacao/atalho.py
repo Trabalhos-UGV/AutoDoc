@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import plistlib
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -62,41 +63,123 @@ def criar(destino_base: Path | None = None) -> Atalho:
 
 # ------------------------------------------------------------------ macOS
 
+CAMERA = "O AutoDoc usa a câmera para reconhecer os gestos da sua mão no Tetris e no controle por gestos."
+
+# O Tetris precisa da camera, e o macOS decide a permissao pelo app
+# *responsavel* pelo processo. A primeira versao do pacote tinha um script como
+# executavel, e o script fazia `exec` no Python: a partir dali o responsavel era
+# o proprio Python (`org.python.python`), cujo Info.plist nao declara camera — e
+# o macOS recusava em silencio, sem nem perguntar.
+#
+# Agora o executavel e um "applet" do `osacompile`: binario nativo, assinado
+# pela Apple, presente em todo Mac. Ele fica vivo, invisivel, e abre o Python
+# como *filho*. Filho herda o responsavel, e o responsavel passa a ser o
+# AutoDoc, com a frase de `CAMERA` no Info.plist. Quando o AutoDoc fecha, o
+# applet percebe e sai junto.
+APPLET = """property processo : ""
+
+on run
+	set abrir to POSIX path of (path to me) & "Contents/Resources/abrir.sh"
+	set processo to do shell script quoted form of abrir & " > /dev/null 2>&1 & echo $!"
+end run
+
+on idle
+	try
+		do shell script "kill -0 " & processo
+	on error
+		quit
+	end try
+	return 2
+end idle
+"""
+
+
+def _script_de_abertura() -> str:
+    """O que efetivamente abre o AutoDoc, chamado pelo applet (ou pelo pacote antigo).
+
+    `arch -arm64` porque o macOS abria o app pelo Rosetta num Mac com chip
+    Apple, e os pacotes compilados so para Apple Silicon (numpy, OpenCV,
+    MediaPipe) nao carregavam. `hw.optional.arm64` responde 1 no chip Apple
+    mesmo de dentro do Rosetta.
+    """
+    python = _python_do_projeto()
+    return (
+        "#!/bin/bash\n"
+        f'cd "{RAIZ}"\n'
+        # A janela le isto para se apresentar como AutoDoc no Dock, e nao como Python.
+        "export AUTODOC_PELO_ICONE=1\n"
+        'if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then\n'
+        f'    exec arch -arm64 "{python}" main.py app\n'
+        "fi\n"
+        f'exec "{python}" main.py app\n'
+    )
+
+
+def _e_nosso(pacote: Path) -> bool:
+    try:
+        dados = plistlib.loads((pacote / "Contents" / "Info.plist").read_bytes())
+    except (OSError, plistlib.InvalidFileException):
+        return False
+    return dados.get("CFBundleIdentifier") == IDENTIFICADOR
+
+
 def _criar_macos(destino_base: Path | None) -> Atalho:
     base = destino_base or (Path.home() / "Applications")
     base.mkdir(parents=True, exist_ok=True)
     pacote = base / f"{NOME}.app"
 
+    if pacote.exists():
+        # So apaga o que foi o proprio AutoDoc que criou.
+        if not _e_nosso(pacote):
+            return Atalho(pacote, False, f"ja existe um {NOME}.app que nao e deste projeto; nada foi mudado")
+        shutil.rmtree(pacote)
+
+    com_applet = shutil.which("osacompile") is not None
+    if com_applet:
+        subprocess.run(["osacompile", "-s", "-o", str(pacote), "-e", APPLET], check=True, capture_output=True)
+
     conteudo = pacote / "Contents"
-    executaveis = conteudo / "MacOS"
     recursos = conteudo / "Resources"
-    executaveis.mkdir(parents=True, exist_ok=True)
+    (conteudo / "MacOS").mkdir(parents=True, exist_ok=True)
     recursos.mkdir(parents=True, exist_ok=True)
 
-    informacoes = {
+    abrir = recursos / "abrir.sh" if com_applet else conteudo / "MacOS" / NOME
+    abrir.write_text(_script_de_abertura(), encoding="utf-8")
+    abrir.chmod(0o755)
+
+    caminho_plist = conteudo / "Info.plist"
+    informacoes = plistlib.loads(caminho_plist.read_bytes()) if com_applet else {}
+    informacoes.update({
         "CFBundleName": NOME,
         "CFBundleDisplayName": NOME,
         "CFBundleIdentifier": IDENTIFICADOR,
-        "CFBundleExecutable": NOME,
-        "CFBundleIconFile": "autodoc.icns",
+        "CFBundleExecutable": "applet" if com_applet else NOME,
+        "CFBundleIconFile": "applet" if com_applet else "autodoc.icns",
         "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": _versao(),
         "NSHighResolutionCapable": True,
-    }
-    (conteudo / "Info.plist").write_bytes(plistlib.dumps(informacoes))
+        "LSArchitecturePriority": ["arm64", "x86_64"],
+        "NSCameraUsageDescription": CAMERA,
+    })
+    if com_applet:
+        # O applet e so o dono invisivel do processo; quem aparece no Dock,
+        # com o nome e o icone do AutoDoc, e a janela.
+        informacoes["LSUIElement"] = True
+        # O osacompile novo guarda o icone num catalogo (Assets.car), que o
+        # macOS prefere ao .icns: sem tirar, o Launchpad mostraria o icone
+        # padrao do AppleScript em vez do AutoDoc.
+        informacoes.pop("CFBundleIconName", None)
+        (recursos / "Assets.car").unlink(missing_ok=True)
+    caminho_plist.write_bytes(plistlib.dumps(informacoes))
 
     icone = RECURSOS / "autodoc.icns"
     if icone.exists():
-        (recursos / "autodoc.icns").write_bytes(icone.read_bytes())
+        (recursos / ("applet.icns" if com_applet else "autodoc.icns")).write_bytes(icone.read_bytes())
 
-    lancador = executaveis / NOME
-    lancador.write_text(
-        "#!/bin/bash\n"
-        f'cd "{RAIZ}"\n'
-        f'exec "{_python_do_projeto()}" main.py app\n',
-        encoding="utf-8",
-    )
-    lancador.chmod(0o755)
+    if com_applet and shutil.which("codesign"):
+        # Mexer no Info.plist e no icone quebra a assinatura que o osacompile
+        # pos; assinar de novo, sem certificado ("-"), deixa o pacote integro.
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(pacote)], check=True, capture_output=True)
 
     # O Finder guarda em cache o icone pelo tempo de modificacao do pacote.
     os.utime(pacote, None)
