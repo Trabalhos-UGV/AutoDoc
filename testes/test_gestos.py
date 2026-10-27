@@ -686,10 +686,17 @@ class TestModelo(unittest.TestCase):
 class TestDependencias(unittest.TestCase):
     def test_falta_de_dependencia_diz_o_que_instalar(self):
         with mock.patch.dict(sys.modules, {"cv2": None, "pyautogui": None}):
-            with self.assertRaisesRegex(GestosIndisponiveis, "requirements-gestos"):
+            with self.assertRaisesRegex(GestosIndisponiveis, "falta o pacote cv2.* -m pip install -r requirements-gestos"):
                 camera.importar_visao()
             with self.assertRaisesRegex(GestosIndisponiveis, "pyautogui"):
                 camera.importar_mouse()
+
+    def test_comando_usa_o_python_que_esta_rodando(self):
+        """Um "pip" sozinho e o do sistema: instalava fora do venv, e o jogo nao achava."""
+        with mock.patch.object(camera.sys, "executable", str(camera.RAIZ / "venv" / "bin" / "python")):
+            self.assertTrue(camera.comando_para_instalar().startswith(f"{Path('venv') / 'bin' / 'python'} -m pip install"))
+        with mock.patch.object(camera.sys, "executable", "/usr/bin/python3"):
+            self.assertTrue(camera.comando_para_instalar().startswith("/usr/bin/python3 -m pip install"))
 
     def test_erro_de_importacao_sem_nome(self):
         """O OpenCV sem numpy levanta ImportError sem nome; a mensagem saia "falta None"."""
@@ -701,7 +708,19 @@ class TestDependencias(unittest.TestCase):
             return importar(nome, *argumentos, **opcoes)
 
         with mock.patch("builtins.__import__", side_effect=falhar):
-            with self.assertRaisesRegex(GestosIndisponiveis, "falta OpenCV bindings requires numpy"):
+            with self.assertRaisesRegex(GestosIndisponiveis, "não carregou: OpenCV bindings requires numpy"):
+                camera.importar_visao()
+
+    def test_biblioteca_do_sistema_que_falta_no_linux(self):
+        importar = __import__
+
+        def falhar(nome, *argumentos, **opcoes):
+            if nome == "cv2":
+                raise ImportError("libGL.so.1: cannot open shared object file: No such file or directory")
+            return importar(nome, *argumentos, **opcoes)
+
+        with mock.patch("builtins.__import__", side_effect=falhar), mock.patch.object(camera.sys, "platform", "linux"):
+            with self.assertRaisesRegex(GestosIndisponiveis, "libGL.so.1.*apt install libgl1"):
                 camera.importar_visao()
 
     def test_com_dependencias(self):
