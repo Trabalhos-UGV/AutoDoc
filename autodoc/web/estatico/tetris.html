@@ -32,7 +32,7 @@
       <h2 class="ad-rotulo" data-camera-titulo>Sua mão</h2>
       <div class="camera" data-camera>
         <img class="camera__video" data-camera-video alt="" hidden>
-        <canvas class="camera__maos" data-camera-maos></canvas>
+        <canvas class="camera__maos" data-camera-maos aria-hidden="true"></canvas>
         <canvas class="camera__palco" data-palco aria-label="Seu personagem 3D" role="img" hidden></canvas>
         <div class="camera__vazia" data-camera-vazia>
           <svg class="camera__icone" viewBox="0 0 24 24" aria-hidden="true">
@@ -100,15 +100,15 @@
     <section class="ad-cartao bloco">
       <h2 class="ad-rotulo">Próximas</h2>
       <div class="fila">
-        <canvas class="fila__peca fila__peca--primeira" data-proxima></canvas>
-        <canvas class="fila__peca" data-proxima></canvas>
-        <canvas class="fila__peca" data-proxima></canvas>
+        <canvas class="fila__peca fila__peca--primeira" data-proxima role="img" aria-label="Próxima peça"></canvas>
+        <canvas class="fila__peca" data-proxima role="img" aria-label="Segunda peça da fila"></canvas>
+        <canvas class="fila__peca" data-proxima role="img" aria-label="Terceira peça da fila"></canvas>
       </div>
     </section>
 
     <section class="ad-cartao bloco">
       <h2 class="ad-rotulo">Guardada</h2>
-      <canvas class="fila__peca guardada" data-guardada></canvas>
+      <canvas class="fila__peca guardada" data-guardada role="img" aria-label="Peça guardada"></canvas>
       <p class="guardada__dica" data-guardada-dica></p>
     </section>
 
