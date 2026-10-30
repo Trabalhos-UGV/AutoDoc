@@ -176,7 +176,7 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 721 testes, ~22 segundos
+python -m unittest discover -s testes     # 732 testes, ~22 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
@@ -213,6 +213,46 @@ O medidor é `ferramentas/cobertura.py`, escrito com o `trace` da biblioteca
 padrão. Ele registra o rastreador também para as threads novas
 (`threading.settrace`), sem o que o servidor e o monitoramento ficam invisíveis
 e o `servidor.py` aparece com 35% quando na verdade tem 100%.
+
+### Testes de usabilidade (UX)
+
+Cinco testes que rodam sozinhos pelo terminal e terminam com um parecer —
+**APROVADO**, **APROVADO COM RESSALVAS** ou **REPROVADO** —, dizendo o que
+passou, o que falhou e o que fazer a respeito. Saem com código 0 se nada
+falhou, 1 se algo falhou, então servem também num pipeline.
+
+```bash
+python3 ferramentas/ux.py contraste          # as cores do texto se leem?
+python3 ferramentas/ux.py acessibilidade     # leitor de tela e teclado encontram tudo?
+python3 ferramentas/ux.py responsivo         # as telas cabem em monitor, tablet e celular?
+venv/bin/python ferramentas/ux.py tempo      # a tela responde rápido?
+venv/bin/python ferramentas/ux.py tarefa     # dá para fazer as tarefas de ponta a ponta?
+venv/bin/python ferramentas/ux.py todos      # os cinco, com um resumo no fim
+```
+
+| Comando | Para que serve | Como mede |
+| --- | --- | --- |
+| `contraste` | Legibilidade para quem tem a vista cansada ou usa o notebook no sol | Razão de contraste de cada cor de texto sobre o fundo dela, contra o mínimo da WCAG 2.1 AA (4,5:1); sugere a cor que passaria. Também acusa texto pintado com a cor só decorativa |
+| `acessibilidade` | Quem usa leitor de tela ou só o teclado | Lê o HTML de cada tela como o leitor de tela leria: idioma, título, botões e links com nome, imagens com `alt`, desenhos (`canvas`) descritos, campos com rótulo |
+| `responsivo` | Telas usáveis em monitor, notebook, tablet e celular | Abre cada tela num Chrome sem janela em várias larguras e mede rolagem lateral, texto menor que 10,5 px e alvo de clique menor que 24×24 px (WCAG 2.5.8), dizendo qual elemento |
+| `tempo` | A sensação de o programa responder na hora | Sobe o AutoDoc numa pasta temporária e cronometra abrir, listar, buscar, filtrar e a tecla do Tetris, contra os limites de Nielsen (0,1 s instantâneo; 1 s sem perder o fio) |
+| `tarefa` | Se dá para fazer o que se veio fazer, sem ajuda | Cumpre três tarefas como uma pessoa: guardar uma conta de luz e achá-la (aparece sozinha, categoria, data, explicação, busca com acento), corrigir um documento ilegível, e jogar Tetris pelo teclado |
+
+`tempo` e `tarefa` sobem o AutoDoc de verdade, por isso pedem o Python do
+`venv`; nenhum dos cinco toca nos seus documentos. `responsivo` precisa de um
+Chrome ou Chromium instalado — sem ele o teste é pulado e diz isso.
+
+Na primeira rodada eles acharam quatro problemas, todos corrigidos:
+
+- **dica da busca, hora do log e comentários em contraste de 3:1** — o texto
+  passou para `--ad-fraco` (4,6:1), e a cor mais fraca ficou só para ícones e
+  botão desabilitado;
+- **cinco desenhos do Tetris sem descrição** para leitor de tela — agora a fila
+  e a peça guardada dizem qual peça mostram;
+- **a caixa de busca só respondia ao clique no miolo de 16 px** — a folga foi
+  para dentro do campo, e a caixa inteira é clicável;
+- **a busca com acento**, que o teste antes não provava de verdade, agora é
+  conferida buscando "elétrica" num documento escrito sem acento.
 
 ### Interface gráfica
 
@@ -434,6 +474,7 @@ Além do escopo original da proposta, esta base inclui:
 - **Tetris comandado pela mão**, aberto por um botão no próprio AutoDoc, com instalação dos gestos pelo app.
 - **Avatar 3D** que substitui a pessoa na tela e copia cabeça, rosto, braços e mãos — sem nenhuma imagem da câmera sair do programa.
 - **Máscara de emoji sobre o rosto**, como reserva para máquinas sem 3D, cobrindo todo rosto que aparecer na câmera.
+- **Testes de usabilidade automáticos** (`ferramentas/ux.py`): contraste, acessibilidade, telas em vários tamanhos, tempo de resposta e tarefas de ponta a ponta, cada um com parecer no terminal.
 - **Permissão de câmera do próprio AutoDoc no macOS**, e o app rodando nativo no chip Apple em vez de emulado.
 
 ## O que ainda não está pronto

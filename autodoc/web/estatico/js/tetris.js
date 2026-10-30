@@ -316,6 +316,9 @@ function desenharMaos() {
 
 /** Uma peça sozinha, centralizada no canvas: a fila e a guardada. */
 function desenharPeca(canvas, tipo) {
+  // Quem usa leitor de tela ouve qual é a peça, e não só "próxima peça".
+  canvas.dataset.rotulo ??= canvas.getAttribute('aria-label') ?? '';
+  canvas.setAttribute('aria-label', `${canvas.dataset.rotulo}: ${tipo ? `peça ${tipo}` : 'nenhuma'}`);
   const { ctx, largura, altura } = preparar(canvas);
   ctx.clearRect(0, 0, largura, altura);
   if (!tipo || !atual.formas) return;
