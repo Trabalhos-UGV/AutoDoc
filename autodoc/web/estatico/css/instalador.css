@@ -169,7 +169,7 @@
 .etapa__titulo {
   font-size: 13.5px;
   font-weight: 500;
-  color: var(--ad-fantasma);
+  color: var(--ad-fraco);
   transition: color 260ms ease;
 }
 .etapa:not([data-estado='espera']) .etapa__titulo { color: var(--ad-tinta-forte); }
@@ -177,7 +177,7 @@
 .etapa__detalhe {
   font-family: var(--ad-mono);
   font-size: 11px;
-  color: var(--ad-fantasma);
+  color: var(--ad-fraco);
   margin-top: 3px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -199,7 +199,7 @@
 }
 
 .log__linha { display: flex; gap: 12px; }
-.log__hora { color: var(--ad-fantasma); flex: none; }
+.log__hora { color: var(--ad-fraco); flex: none; }
 .log__mensagem { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Linha nova entra deslizando de baixo, como um terminal de verdade. */
