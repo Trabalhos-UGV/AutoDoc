@@ -188,7 +188,7 @@ a:hover { color: var(--ad-acento-claro); }
   padding: 16px 18px;
 }
 .ad-console__cifrao { color: var(--ad-acento); }
-.ad-console__comentario { color: var(--ad-fantasma); }
+.ad-console__comentario { color: var(--ad-fraco); }
 
 /* Ponto pulsante do "watchdog ativo" e da etapa em andamento. O gerador dos
    frames removia esta animacao de proposito, para a captura do Figma sair
