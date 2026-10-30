@@ -212,7 +212,10 @@
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 12px 15px;
+  /* A folga de cima e de baixo fica no campo, e nao na caixa: assim clicar em
+     qualquer ponto da caixa poe o cursor na busca. Com ela aqui, so o miolo
+     de 16 px respondia (o teste de UX `responsivo` pegou). */
+  padding: 0 15px;
   border: 1px solid var(--ad-borda-forte);
   border-radius: 11px;
   background: #181611;
@@ -225,17 +228,18 @@
 .busca__campo {
   flex: 1;
   min-width: 0;
+  padding: 12px 0;
   border: none;
   outline: none;
   background: transparent;
   color: var(--ad-tinta-forte);
   font-size: 13px;
 }
-.busca__campo::placeholder { color: var(--ad-fantasma); }
+.busca__campo::placeholder { color: var(--ad-fraco); }
 /* O X nativo do type=search não combina com o resto; some. */
 .busca__campo::-webkit-search-cancel-button { display: none; }
 
-.busca__dica { font-size: 11px; color: var(--ad-fantasma); flex: none; }
+.busca__dica { font-size: 11px; color: var(--ad-fraco); flex: none; }
 
 /* -------------------------------------------------------- números */
 
@@ -336,7 +340,7 @@
   display: block;
   font-family: var(--ad-mono);
   font-size: 10.5px;
-  color: var(--ad-fantasma);
+  color: var(--ad-fraco);
   margin-top: 3px;
 }
 
@@ -556,7 +560,7 @@
     font-size: 10px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--ad-fantasma);
+    color: var(--ad-fraco);
     margin-right: 4px;
   }
 
