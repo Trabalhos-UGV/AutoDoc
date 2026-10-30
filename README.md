@@ -176,7 +176,7 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 730 testes, ~22 segundos
+python -m unittest discover -s testes     # 732 testes, ~22 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
