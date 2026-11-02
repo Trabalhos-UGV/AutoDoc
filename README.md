@@ -169,6 +169,7 @@ python main.py app                # abre a janela do AutoDoc (padrão)
 python main.py monitorar          # monitora pela linha de comando, sem janela
 python main.py buscar "luz março" # busca nos documentos indexados
 python main.py listar             # últimos documentos processados
+python main.py exemplos           # copia os documentos de exemplo para a pasta vigiada
 python main.py gestos             # controla o mouse com a mão, pela webcam
 python main.py gestos --tetris    # Tetris comandado pela mão (--sem-camera: pelo teclado)
 ```
@@ -198,20 +199,32 @@ fichas sobre ela: apagar `.autodoc/` não perde nada, porque na abertura seguint
 o AutoDoc varre as pastas e refaz as fichas. Apagar a pasta apaga tudo — que é o
 comportamento esperado de um programa que não guarda nada em outro lugar.
 
-Para experimentar sem usar documentos seus:
+### Documentos de exemplo
+
+A pasta [exemplos/](exemplos/LEIA-ME.md) é a demonstração do AutoDoc: 23
+documentos fictícios, mas no formato em que chegam de verdade. Há contas e
+boletos em PDF com texto, uma conta de água escaneada, o RG fotografado torto
+com o celular, a CNH digitalizada, um print de Pix, um contrato com a página de
+assinaturas escaneada e um manual fotografado deitado. Há também o que não é
+documento: uma foto, um ícone, uma pasta de projeto e um `.zip`, que mostram que
+o AutoDoc não mexe no que não deve.
+
+**A instalação já os copia para a pasta vigiada.** Ao abrir o AutoDoc pela
+primeira vez, eles são organizados na hora. Para apresentar de novo:
 
 ```bash
-cp exemplos/*.txt entrada/
+python main.py exemplos     # copia os exemplos para a pasta vigiada outra vez
 ```
 
-São cinco documentos fictícios, descritos em [exemplos/LEIA-ME.md](exemplos/LEIA-ME.md).
-Um deles é ilegível de propósito, para mostrar o que o sistema faz quando não
-tem confiança suficiente para classificar.
+A pasta `exemplos/` do repositório nunca é vigiada direto: o AutoDoc tira da
+pasta vigiada o que organiza, e ela se esvaziaria. Os arquivos saem de
+`ferramentas/gerar_exemplos.py`, e o lugar certo de cada um é conferido em
+`testes/test_exemplos.py`.
 
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 889 testes, ~23 segundos
+python -m unittest discover -s testes     # 897 testes, ~40 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
@@ -229,7 +242,8 @@ AutoDoc já pede, e cada um trabalha numa pasta temporária própria.
 | `test_extrator.py` | texto, PDF, OCR de digitalizado e as dependências opcionais ausentes |
 | `test_monitor.py` | arquivos ignorados, espera pela cópia, só o primeiro nível (subpasta, `.app`, `.zip` e atalho intocados), varredura periódica e a espera pelo OCR |
 | `test_servidor.py` | a API das telas, o fluxo de eventos e a porta ocupada |
-| `test_instalacao.py` | as seis etapas e a pasta escolhida chegando ao `config.json` |
+| `test_instalacao.py` | as seis etapas, a pasta escolhida chegando ao `config.json` e os exemplos copiados uma vez só |
+| `test_exemplos.py` | a demonstração: a pasta `exemplos/` inteira, com OCR de verdade, cada documento na pasta certa e o projeto e o `.zip` intocados |
 | `test_instalador_servidor.py` | o estado do instalador gráfico e as rotas dele |
 | `test_atalho.py` | o `.app`, o `.desktop` e o `.lnk` gerados |
 | `test_janela.py` | a janela nativa e a queda para o navegador |
@@ -237,7 +251,7 @@ AutoDoc já pede, e cada um trabalha numa pasta temporária própria.
 | `test_main.py` | a linha de comando inteira |
 | `test_registro.py` | o registro em arquivo, no lugar de cada sistema |
 
-**A cobertura é de 100% das linhas** (4655 de 4661). As seis que faltam ficam de
+**A cobertura é de 100% das linhas** (4699 de 4705). As seis que faltam ficam de
 fora por motivo, e não por esquecimento:
 
 - três caminhos **só do Windows** (`%APPDATA%`, `venv\Scripts\`) — não dá
@@ -444,7 +458,7 @@ autodoc/
   web/estatico/     # as telas (HTML, CSS, JS, fontes)
   gestos/           # gestos pela webcam: mouse, quadro de desenho, Tetris e avatar 3D (opcional)
 site/               # landing page, publicável sozinha
-exemplos/           # documentos fictícios para experimentar
+exemplos/           # a demonstração: documentos fictícios em PDF, scan e foto
 recursos/           # ícone do aplicativo em cada formato
 ferramentas/        # scripts de apoio ao desenvolvimento
 instalar.py         # instalador gráfico
@@ -546,6 +560,7 @@ Além do escopo original da proposta, esta base inclui:
 - **Mais formatos**: `.tif`, `.webp` e `.heic` do iPhone; texto em UTF-16 (Excel, Bloco de Notas) e cp1252 lido com os acentos.
 - **Seis categorias além das contas** (certificado, estudos, manual técnico, licença, informativo, documentação), o nome do arquivo como evidência, e imagem e texto solto identificados pelo tipo em vez de irem para a revisão.
 - **Só o primeiro nível da pasta vigiada**: subpasta, aplicativo, projeto e formato que o AutoDoc não lê ficam onde estão.
+- **Demonstração pronta**: 23 documentos de exemplo em formato real (PDF, scan, foto de celular torta e deitada, print), gerados por `ferramentas/gerar_exemplos.py` e copiados pela instalação para a pasta vigiada.
 - **Diário de movimentos** (`.autodoc/movimentos.jsonl`): de onde veio cada arquivo que o AutoDoc tirou do lugar.
 - **Diagnóstico do OCR na tela**, com o comando de instalação de cada sistema, e fotos esperando o OCR em vez de irem para a revisão.
 - **OCR por página**, com a foto endireitada pelo EXIF e ampliada antes de ler.
