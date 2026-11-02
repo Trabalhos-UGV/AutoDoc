@@ -41,6 +41,8 @@ class TestDeveIgnorar(unittest.TestCase):
         "arquivo.download",
         "rascunho.tmp",
         ".conta.txt.swp",
+        "desktop.ini",         # Windows, em pasta personalizada
+        "Thumbs.db",           # Windows, miniaturas
     ]
 
     ACEITOS = ["nota.pdf", "conta_energia.txt", "scan0031.png", "documento.jpeg"]
@@ -203,9 +205,30 @@ class TestProcessarPendentes(BaseComPasta):
         # os ignorados continuam onde estavam, sem virar documento
         self.assertTrue((self.config.pasta_entrada / ".DS_Store").exists())
 
-    def test_ignora_subpasta(self):
+    def test_pasta_vazia_dentro_da_entrada_nao_conta(self):
         (self.config.pasta_entrada / "uma pasta").mkdir()
         self.assertEqual(processar_pendentes(self.pipeline), 0)
+
+    def test_le_os_arquivos_de_subpastas(self):
+        """Arrastar uma pasta inteira de contas para a entrada."""
+        subpasta = self.config.pasta_entrada / "contas de 2026"
+        subpasta.mkdir()
+        (subpasta / "luz.txt").write_text(
+            (EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8"), encoding="utf-8")
+
+        self.assertEqual(processar_pendentes(self.pipeline), 1)
+        self.assertFalse((subpasta / "luz.txt").exists())
+
+    def test_pula_pasta_oculta_e_a_pasta_organizada(self):
+        oculta = self.config.pasta_entrada / ".git"
+        oculta.mkdir()
+        (oculta / "config.txt").write_text("x", encoding="utf-8")
+        self.config.pasta_saida = self.config.pasta_entrada / "organizados"
+        self.config.pasta_saida.mkdir()
+        (self.config.pasta_saida / "ja.txt").write_text("x", encoding="utf-8")
+
+        self.assertEqual(monitor.arquivos_da_entrada(
+            self.config.pasta_entrada, self.config.pasta_saida), [])
 
     def test_um_arquivo_problematico_nao_impede_os_outros(self):
         """O defeito: uma exceção aqui fazia o AutoDoc inteiro não subir."""
@@ -275,6 +298,14 @@ class TestManipulador(BaseComPasta):
         self.manipulador.on_created(
             EventoFalso(src_path=self.config.pasta_entrada / "nova", is_directory=True))
         self.assertEqual(len(self.catalogo), 0)
+
+    def test_arquivo_dentro_da_pasta_organizada_e_ignorado(self):
+        self.config.pasta_saida = self.config.pasta_entrada / "organizados"
+        manipulador = monitor._Manipulador(self.pipeline)
+        with mock.patch.object(self.pipeline, "processar") as processou:
+            manipulador.on_created(EventoFalso(
+                src_path=self.config.pasta_saida / "conta_luz" / "x.txt"))
+        processou.assert_not_called()
 
     def test_arquivo_temporario_e_ignorado(self):
         alvo = self.largar("conta.txt.crdownload")

@@ -15,6 +15,8 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .extrator import EXTENSOES_SUPORTADAS
+
 RAIZ = Path(__file__).resolve().parent.parent
 CAMINHO_CONFIG = RAIZ / "config.json"
 
@@ -77,8 +79,8 @@ class Config:
     # Pasta sincronizada (Drive/OneDrive) para backup. Opcional.
     pasta_backup: Path | None = None
 
-    # Extensoes aceitas pelo monitorador.
-    extensoes: tuple[str, ...] = (".pdf", ".png", ".jpg", ".jpeg", ".txt")
+    # Extensoes aceitas pelo monitorador: tudo o que o extrator sabe ler.
+    extensoes: tuple[str, ...] = tuple(sorted(EXTENSOES_SUPORTADAS))
 
     def __post_init__(self) -> None:
         self.pasta_entrada = Path(self.pasta_entrada).expanduser()
@@ -125,8 +127,12 @@ class Config:
             config.pasta_entrada = entrada_padrao()
             config.pasta_saida = config.saida_ao_lado()
 
+        # As gravadas somam as padroes, e nao as substituem: um config.json
+        # gravado quando so havia cinco formatos deixaria a foto .heic e o
+        # .tiff do scanner parados na entrada para sempre.
         if dados.get("extensoes"):
-            config.extensoes = tuple(e.lower() for e in dados["extensoes"])
+            gravadas = (e.lower() for e in dados["extensoes"])
+            config.extensoes = tuple(dict.fromkeys([*config.extensoes, *gravadas]))
 
         # Um `banco` de uma versao antiga e lido e ignorado de proposito: nao
         # ha mais banco, e recusar o arquivo por causa dele seria pior.

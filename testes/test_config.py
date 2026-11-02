@@ -83,8 +83,16 @@ class TestLeitura(BaseConfig):
                          Config().pasta_entrada)
 
     def test_extensoes_viram_minusculas(self):
-        config = Config.carregar(self.escrever({"extensoes": [".PDF", ".Txt"]}))
-        self.assertEqual(config.extensoes, (".pdf", ".txt"))
+        config = Config.carregar(self.escrever({"extensoes": [".PDF", ".DOCX"]}))
+        self.assertIn(".docx", config.extensoes)
+        self.assertEqual(config.extensoes.count(".pdf"), 1)
+
+    def test_config_antigo_com_cinco_formatos_ganha_os_novos(self):
+        """Gravado quando so havia cinco, nao pode deixar a foto .heic parada."""
+        config = Config.carregar(self.escrever({
+            "extensoes": [".pdf", ".png", ".jpg", ".jpeg", ".txt"]}))
+        for nova in (".heic", ".tiff", ".webp"):
+            self.assertIn(nova, config.extensoes)
 
 
 class TestPastaQueNaoPodeSerVigiada(BaseConfig):

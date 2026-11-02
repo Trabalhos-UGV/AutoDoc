@@ -18,7 +18,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .catalogo import PASTA_DUPLICADOS, PASTA_REVISAO, Catalogo, Ficha
+from .catalogo import (
+    PASTA_DUPLICADOS,
+    PASTA_NAO_SUPORTADOS,
+    PASTA_REVISAO,
+    Catalogo,
+    Ficha,
+)
 from .classificador import NAO_CLASSIFICADO, ROTULOS, Classificacao, classificar
 from .config import Config
 from .datas import data_do_documento, extrair_data
@@ -81,7 +87,11 @@ class Pipeline:
 
     def _processar(self, caminho: Path) -> Resultado:
         if caminho.suffix.lower() not in self.config.extensoes:
-            return Resultado(caminho, ignorado="extensao nao monitorada")
+            # Deixado na entrada, um .docx ficava ali para sempre e quem o
+            # largou achava que o AutoDoc tinha travado. Sai, para uma pasta
+            # que diz o motivo, e a tela conta quantos estao la.
+            destino = self._recolher(caminho, PASTA_NAO_SUPORTADOS)
+            return Resultado(caminho, ignorado="formato nao suportado", destino=destino)
 
         try:
             assinatura = hash_arquivo(caminho)

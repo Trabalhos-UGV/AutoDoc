@@ -34,6 +34,10 @@ SUFIXOS_TEMPORARIOS = (".crdownload", ".part", ".partial", ".download", ".tmp", 
 # arquivo, e o macOS espalha "._" em pen drive.
 PREFIXOS_TEMPORARIOS = ("~$", "._")
 
+# Arquivos que o proprio sistema cria dentro das pastas (o Windows os esconde,
+# mas a pasta sincronizada ou o pen drive os traz a vista).
+NOMES_DO_SISTEMA = {"desktop.ini", "thumbs.db"}
+
 
 def deve_ignorar(caminho: Path) -> bool:
     """Diz se o arquivo nao e um documento de ninguem.
@@ -43,7 +47,8 @@ def deve_ignorar(caminho: Path) -> bool:
     """
     nome = caminho.name
     return (
-        nome.startswith(".")
+        nome.lower() in NOMES_DO_SISTEMA
+        or nome.startswith(".")
         or nome.startswith(PREFIXOS_TEMPORARIOS)
         or caminho.suffix.lower() in SUFIXOS_TEMPORARIOS
     )
@@ -105,6 +110,27 @@ def _avisar(ao_processar, resultado) -> None:
         logger.exception("falha ao notificar documento novo")
 
 
+def arquivos_da_entrada(pasta: Path, saida: Path) -> list[Path]:
+    """Os documentos da pasta vigiada, subpastas inclusive.
+
+    Arrastar uma pasta inteira de contas para a entrada e o jeito natural de
+    usar; antes as subpastas eram ignoradas e os arquivos dentro delas nunca
+    saiam dali. Pasta oculta fica de fora, e a pasta organizada tambem — se
+    alguem a configurou dentro da entrada, ela se reprocessaria sem fim.
+    """
+    achados = []
+    for caminho in sorted(pasta.rglob("*")):
+        relativo = caminho.relative_to(pasta)
+        if any(parte.startswith(".") for parte in relativo.parts[:-1]):
+            continue
+        if not caminho.is_file() or deve_ignorar(caminho):
+            continue
+        if caminho == saida or saida in caminho.parents:
+            continue
+        achados.append(caminho)
+    return achados
+
+
 def processar_pendentes(pipeline: Pipeline, ao_processar=None) -> int:
     """Processa o que ja estava na pasta antes do monitor subir.
 
@@ -118,9 +144,7 @@ def processar_pendentes(pipeline: Pipeline, ao_processar=None) -> int:
         return 0
 
     total = 0
-    for caminho in sorted(pasta.iterdir()):
-        if not caminho.is_file() or deve_ignorar(caminho):
-            continue
+    for caminho in arquivos_da_entrada(pasta, pipeline.config.pasta_saida):
         # Um arquivo ainda sendo copiado quando o programa abre tem que ser
         # esperado aqui tambem, e nao so no caminho do watchdog.
         if not aguardar_arquivo_pronto(caminho):
@@ -176,6 +200,9 @@ class _Manipulador:
         # apontaria para de onde ele saiu, que ja nao existe mais.
         caminho = Path(evento.dest_path if destino else evento.src_path)
         if deve_ignorar(caminho):
+            return
+        saida = self.pipeline.config.pasta_saida
+        if saida in caminho.parents:
             return
         if not aguardar_arquivo_pronto(caminho):
             return
@@ -247,7 +274,7 @@ def criar_observador(pipeline: Pipeline, ao_processar=None) -> Vigia:
     observador.schedule(
         _Manipulador(pipeline, ao_processar),
         str(pipeline.config.pasta_entrada),
-        recursive=False,
+        recursive=True,
     )
     vigia = Vigia(observador, pipeline, ao_processar)
     vigia.start()

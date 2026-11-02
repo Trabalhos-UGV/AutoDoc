@@ -279,6 +279,35 @@ class TestImagem(BaseArquivos):
         self.assertIn("RECIBO", texto)
 
 
+class TestFormatosDeFoto(BaseArquivos):
+    """Scanner salva .tiff, celular salva .webp e o iPhone salva .heic."""
+
+    def test_cada_formato_chega_ao_ocr(self):
+        from PIL import Image
+
+        for extensao, formato in ((".tif", "TIFF"), (".webp", "WEBP"), (".heic", "HEIF")):
+            with self.subTest(formato=extensao):
+                alvo = self.pasta / f"foto{extensao}"
+                Image.new("RGB", (60, 30), "white").save(alvo, formato)
+                with mock.patch.object(extrator, "texto_da_imagem",
+                                       return_value="RECIBO") as ocr:
+                    texto, origem = extrair_com_origem(alvo)
+                ocr.assert_called_once()
+                self.assertEqual(texto, "RECIBO")
+
+    def test_sem_pillow_heif_o_resto_do_ocr_continua(self):
+        with mock.patch.dict(sys.modules, {"pillow_heif": None}):
+            pytesseract, Image = extrator._motor_ocr()
+        self.assertTrue(hasattr(Image, "open"))
+
+    def test_heic_ilegivel_diz_o_que_conferir(self):
+        alvo = self.pasta / "foto.heic"
+        alvo.write_bytes(b"nao e uma foto")
+        with self.assertRaises(ExtracaoIndisponivel) as erro:
+            extrair_com_origem(alvo)
+        self.assertIn("pillow-heif", str(erro.exception))
+
+
 class TestErroDoSistemaDeArquivos(BaseArquivos):
     def test_erro_de_leitura_do_pdf_sobe_como_oserror(self):
         """Sem permissão não é "PDF ilegível": o pipeline trata os dois, mas o

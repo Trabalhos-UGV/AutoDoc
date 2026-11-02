@@ -17,8 +17,12 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-EXTENSOES_IMAGEM = {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
+EXTENSOES_IMAGEM = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".heic", ".heif"}
 EXTENSOES_TEXTO = {".txt", ".md", ".csv"}
+EXTENSOES_SUPORTADAS = EXTENSOES_TEXTO | EXTENSOES_IMAGEM | {".pdf"}
+
+# Foto do iPhone. O Pillow so a abre com o plugin do pillow-heif registrado.
+EXTENSOES_HEIF = {".heic", ".heif"}
 
 # Teto de paginas passadas pelo OCR. Cada pagina leva alguns segundos, e um PDF
 # de duzentas paginas travaria o monitoramento inteiro; as primeiras paginas ja
@@ -90,6 +94,11 @@ def _motor_ocr():
         raise ExtracaoIndisponivel(
             "OCR indisponivel (pip install pytesseract Pillow + Tesseract no sistema)"
         ) from erro
+    try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
+    except ImportError:
+        pass  # sem ele, so a foto HEIC deixa de abrir
     return pytesseract, Image
 
 
@@ -121,6 +130,10 @@ def _extrair_imagem(caminho: Path) -> str:
     try:
         abrir = Image.open(caminho)
     except Exception as erro:
+        if caminho.suffix.lower() in EXTENSOES_HEIF:
+            raise ExtracaoIndisponivel(
+                f"foto HEIC ilegível — confira o pillow-heif (pip install pillow-heif): {erro}"
+            ) from erro
         raise ExtracaoIndisponivel(f"imagem ilegível: {erro}") from erro
     with abrir as imagem:
         return texto_da_imagem(imagem)

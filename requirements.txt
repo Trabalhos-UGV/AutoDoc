@@ -18,3 +18,7 @@ pywebview>=5.0
 # AutoDoc roda igual e so deixa de ler imagens.
 pytesseract>=0.3.10
 Pillow>=10.0.0
+
+# Foto HEIC, o formato padrao da camera do iPhone. Sem ele so esse formato
+# deixa de ser lido.
+pillow-heif>=0.16

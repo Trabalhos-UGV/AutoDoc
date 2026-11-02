@@ -10,7 +10,7 @@ from unittest import mock
 from pathlib import Path
 
 from autodoc import pipeline as pipeline_modulo
-from autodoc.catalogo import PASTA_DUPLICADOS, PASTA_REVISAO, Catalogo
+from autodoc.catalogo import PASTA_DUPLICADOS, PASTA_NAO_SUPORTADOS, PASTA_REVISAO, Catalogo
 from autodoc.classificador import NAO_CLASSIFICADO
 from autodoc.config import Config
 from autodoc.extrator import ExtracaoIndisponivel
@@ -94,13 +94,19 @@ class TestArquivamento(BasePipeline):
         self.assertEqual(segundo.destino.name, "conta_energia_marco (2).txt")
         self.assertTrue(primeiro.destino.exists(), "o primeiro nao pode ter sumido")
 
-    def test_extensao_fora_da_lista_e_ignorada(self):
+    def test_formato_nao_suportado_sai_da_entrada_para_pasta_propria(self):
+        """Deixado na entrada, ficava la para sempre sem ninguem saber por que."""
         alvo = self.config.pasta_entrada / "planilha.xlsx"
         alvo.write_text("qualquer coisa", encoding="utf-8")
 
         resultado = self.pipeline.processar(alvo)
         self.assertFalse(resultado.sucesso)
-        self.assertTrue(alvo.exists(), "o que nao e monitorado fica onde esta")
+        self.assertEqual(resultado.ignorado, "formato nao suportado")
+        self.assertFalse(alvo.exists())
+        self.assertEqual(resultado.destino,
+                         self.config.pasta_saida / PASTA_NAO_SUPORTADOS / "planilha.xlsx")
+        self.assertEqual(self.catalogo.arquivos_no_disco(), [],
+                         "o que nao foi lido nao e documento do arquivo")
 
 
 class TestTodosOsExemplos(BasePipeline):
