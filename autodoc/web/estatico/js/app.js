@@ -74,18 +74,16 @@ function avisar(mensagem) {
 
 /**
  * O que saiu da entrada sem virar documento. Sem isto, uma foto esperando o
- * OCR ou um .docx que o AutoDoc não lê simplesmente sumiam da vista de quem os
- * largou na pasta.
+ * OCR simplesmente sumia da vista de quem a largou na pasta.
  */
 function avisoDePendencias(pendencias = {}) {
   const partes = [];
-  const { aguardando_ocr: semOcr = 0, nao_suportados: naoLidos = 0 } = pendencias;
+  const { aguardando_ocr: semOcr = 0 } = pendencias;
   if (semOcr) {
     const ocr = estadoDoServidor()?.ocr;
     partes.push(`${semOcr} foto(s) ou scan(s) esperando o OCR em _Aguardando_OCR`
       + (ocr?.como_instalar ? ` — para ler: ${ocr.como_instalar}` : ''));
   }
-  if (naoLidos) partes.push(`${naoLidos} arquivo(s) em formato que o AutoDoc não lê, em _Nao_suportados`);
   return partes.length ? `${partes.join('. ')}.` : null;
 }
 

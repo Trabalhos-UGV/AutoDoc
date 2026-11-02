@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -86,7 +87,20 @@ def hash_arquivo(caminho: Path) -> str:
 
 
 def _extrair_texto_simples(caminho: Path) -> str:
-    return caminho.read_text(encoding="utf-8", errors="ignore")
+    """Texto de .txt/.csv/.md, na codificacao em que ele foi salvo.
+
+    O Excel e o Bloco de Notas do Windows salvam em UTF-16 com BOM: lido como
+    UTF-8, um CSV desses vira "D e s i g n a t o r" e nenhuma regra casa. E o
+    que nao e UTF-8 valido costuma ser cp1252 — ignorar os bytes ruins, como
+    antes, apagava todo "ã" e "ç" do texto sem avisar.
+    """
+    dados = caminho.read_bytes()
+    if dados.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return dados.decode("utf-16", errors="replace")
+    try:
+        return dados.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return dados.decode("cp1252", errors="replace")
 
 
 def _leitor_pdf(caminho: Path):
@@ -126,6 +140,36 @@ def _motor_ocr():
         pass  # sem ele, so a foto HEIC deixa de abrir
     _achar_tesseract_no_windows(pytesseract)
     return pytesseract, Image
+
+
+def sobre_a_imagem(caminho: Path) -> tuple[tuple[int, int] | None, str | None]:
+    """Tamanho em pixels e data de captura (EXIF, "AAAA-MM-DD") da imagem.
+
+    Serve para dizer o que e uma imagem sem texto de documento — um icone de
+    64x64 nao e uma foto de 4000x3000. Qualquer falha devolve None: e so a
+    descricao que fica mais pobre.
+    """
+    try:
+        from PIL import Image
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError:
+            pass
+        with Image.open(caminho) as imagem:
+            tamanho = imagem.size
+            exif = imagem.getexif()
+            # DateTimeOriginal mora no bloco Exif; DateTime, no principal.
+            capturada = exif.get_ifd(0x8769).get(36867) or exif.get(306)
+    except Exception:
+        return None, None
+
+    data = None
+    if isinstance(capturada, str) and re.match(r"\d{4}:\d{2}:\d{2}", capturada):
+        ano, mes, dia = capturada[:10].split(":")
+        if ano != "0000":
+            data = f"{ano}-{mes}-{dia}"
+    return tamanho, data
 
 
 def tessdata_do_usuario() -> Path:
@@ -205,7 +249,12 @@ def preparar_para_ocr(imagem):
     """
     from PIL import Image, ImageOps
 
-    imagem = ImageOps.exif_transpose(imagem).convert("L")
+    imagem = ImageOps.exif_transpose(imagem)
+    if imagem.mode == "P" and "transparency" in imagem.info:
+        # Direto de paleta para cinza o Pillow avisa a cada imagem — um aviso
+        # por icone, centenas no terminal de quem largou uma pasta de PNGs.
+        imagem = imagem.convert("RGBA")
+    imagem = imagem.convert("L")
     menor = min(imagem.size)
     if 0 < menor < LADO_MINIMO_OCR:
         fator = min(LADO_MINIMO_OCR / menor, AMPLIACAO_MAXIMA)

@@ -36,7 +36,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
-from ..catalogo import PASTA_AGUARDANDO_OCR, PASTA_NAO_SUPORTADOS, Catalogo
+from ..catalogo import PASTA_AGUARDANDO_OCR, Catalogo
 from ..gestos.lancador import Lancador
 from ..classificador import ROTULOS
 from ..extrator import diagnostico_ocr
@@ -235,10 +235,7 @@ class Servidor:
                 return 0
             return sum(1 for c in pasta.iterdir() if c.is_file() and not c.name.startswith("."))
 
-        return {
-            "aguardando_ocr": contar(PASTA_AGUARDANDO_OCR),
-            "nao_suportados": contar(PASTA_NAO_SUPORTADOS),
-        }
+        return {"aguardando_ocr": contar(PASTA_AGUARDANDO_OCR)}
 
     def _estado(self) -> dict:
         return {
