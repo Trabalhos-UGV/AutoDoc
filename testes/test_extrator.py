@@ -458,6 +458,25 @@ class TestTesseractNoWindows(BaseArquivos):
         self.assertEqual(self.achar((self.pasta / "nada", instalado)),
                          str(instalado / "tesseract.exe"))
 
+    def test_o_portugues_baixado_pelo_instalador_e_usado(self):
+        (self.pasta / "por.traineddata").touch()
+        with mock.patch.object(extrator, "tessdata_do_usuario", return_value=self.pasta), \
+             mock.patch.dict(extrator.os.environ, {}, clear=True):
+            self.achar((self.pasta / "nada",))
+            self.assertEqual(extrator.os.environ["TESSDATA_PREFIX"], str(self.pasta))
+
+    def test_pasta_do_portugues(self):
+        with mock.patch.dict(extrator.os.environ, {"LOCALAPPDATA": "C:/Local"}):
+            self.assertEqual(extrator.tessdata_do_usuario(), Path("C:/Local") / "AutoDoc" / "tessdata")
+        with mock.patch.dict(extrator.os.environ, {}, clear=True):
+            self.assertEqual(extrator.tessdata_do_usuario(),
+                             Path.home() / "AppData" / "Local" / "AutoDoc" / "tessdata")
+
+    def test_a_pasta_e_a_mesma_do_instalador(self):
+        import instalar
+        self.assertEqual(extrator.tessdata_do_usuario(), instalar.tessdata_do_usuario())
+        self.assertEqual(extrator.PASTAS_TESSERACT_WINDOWS, instalar.PASTAS_TESSERACT_WINDOWS)
+
     def test_no_path_ou_fora_do_windows_nao_mexe(self):
         antes = self.pytesseract.pytesseract.tesseract_cmd
         self.assertEqual(self.achar((self.pasta,), no_path="C:/tesseract.exe"), antes)

@@ -327,7 +327,8 @@ class TestDependenciasEmDoisNiveis(BaseInstalacao):
 class TestConfigurarOcr(BaseInstalacao):
     def test_tesseract_presente(self):
         versao = mock.Mock(stdout="tesseract 5.3.4\n leptonica-1.84")
-        with mock.patch.object(instalador.shutil, "which", return_value="/usr/bin/tesseract"), \
+        with mock.patch.object(instalador, "caminho_do_tesseract", return_value="/usr/bin/tesseract"), \
+             mock.patch.object(instalador, "diagnostico_ocr", return_value={"portugues": True}), \
              mock.patch.object(instalador.subprocess, "run", return_value=versao):
             linhas, detalhe = self.rodar_sem_pasta(instalador.configurar_ocr)
 
@@ -335,14 +336,25 @@ class TestConfigurarOcr(BaseInstalacao):
         self.assertTrue(any("5.3.4" in l for l in linhas))
         self.assertIn("pronto", detalhe)
 
+    def test_sem_portugues_diz_como_resolver(self):
+        versao = mock.Mock(stdout="")
+        with mock.patch.object(instalador, "caminho_do_tesseract", return_value="/usr/bin/tesseract"), \
+             mock.patch.object(instalador, "diagnostico_ocr", return_value={"portugues": False}), \
+             mock.patch.object(instalador.subprocess, "run", return_value=versao):
+            linhas, detalhe = self.rodar_sem_pasta(instalador.configurar_ocr)
+
+        self.assertTrue(any("falta o português" in l for l in linhas))
+        self.assertIn("inglês", detalhe)
+
     def test_tesseract_ausente_nao_e_erro(self):
         """O AutoDoc lê PDF e texto sem OCR; faltar o Tesseract não impede nada."""
-        with mock.patch.object(instalador.shutil, "which", return_value=None):
+        with mock.patch.object(instalador, "caminho_do_tesseract", return_value=None):
             linhas, detalhe = self.rodar_sem_pasta(instalador.configurar_ocr)
 
         self.assertTrue(any("não encontrado" in l for l in linhas))
+        self.assertTrue(any("instalar.py" in l for l in linhas))
         self.assertTrue(any("funciona normalmente" in l for l in linhas))
-        self.assertIn("desativado", detalhe)
+        self.assertIn("esperam", detalhe)
 
 
 class TestExecutarDeVerdade(BaseInstalacao):

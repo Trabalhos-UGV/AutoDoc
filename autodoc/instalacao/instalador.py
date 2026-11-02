@@ -25,6 +25,7 @@ from pathlib import Path
 
 from ..catalogo import PASTA_CATALOGO, Catalogo
 from ..config import CAMINHO_CONFIG, Config
+from ..extrator import caminho_do_tesseract, como_instalar_ocr, diagnostico_ocr
 from . import atalho
 
 RAIZ = Path(__file__).resolve().parent.parent.parent
@@ -152,12 +153,16 @@ def instalar_dependencias(estado: dict) -> Iterator[str]:
 
 
 def configurar_ocr(estado: dict) -> Iterator[str]:
-    caminho = shutil.which("tesseract")
+    """Confere o OCR. Quem o instala e o `instalar.py`, no terminal, antes desta
+    tela: programa do sistema pede senha de administrador, e aqui nao ha onde
+    digita-la."""
+    caminho = caminho_do_tesseract()
     if not caminho:
         # Ausencia do Tesseract nao e erro: o AutoDoc le PDF e texto sem ele.
-        yield "tesseract não encontrado no PATH"
+        yield "tesseract não encontrado"
+        yield f"para ler fotos: {como_instalar_ocr()} — ou rode python3 instalar.py de novo"
         yield "OCR desativado — o resto do AutoDoc funciona normalmente"
-        estado["detalhe"] = "Tesseract ausente — OCR de imagens desativado"
+        estado["detalhe"] = "Tesseract ausente — fotos esperam o OCR"
         return
 
     versao = subprocess.run(
@@ -166,7 +171,12 @@ def configurar_ocr(estado: dict) -> Iterator[str]:
     yield f"tesseract encontrado em {caminho}"
     if versao:
         yield versao[0].strip()
-    estado["detalhe"] = "Tesseract pronto para ler imagens"
+
+    if not diagnostico_ocr()["portugues"]:
+        yield f"falta o português: {como_instalar_ocr()}"
+        estado["detalhe"] = "Tesseract sem português — lendo em inglês"
+        return
+    estado["detalhe"] = "Tesseract pronto para ler imagens em português"
 
 
 def preparar_catalogo(estado: dict, pasta_entrada: Path) -> Iterator[str]:

@@ -29,17 +29,56 @@ O AutoDoc resolve o problema da organização manual de documentos (contas, nota
 
 - Python 3.10 ou superior. Cuidado: em muitos sistemas o `python3` do sistema
   ainda é 3.9 — o instalador confere e avisa antes de fazer qualquer coisa.
-- Tesseract OCR, com o pacote de **português** — **opcional**, necessário apenas para ler fotos e digitalizações. Sem ele o AutoDoc instala e funciona normalmente; as fotos esperam em `_Aguardando_OCR/` e são lidas sozinhas quando o OCR for instalado. A lateral da tela diz se o OCR existe e se lê português:
-  - **Windows:** baixar o instalador em https://github.com/UB-Mannheim/tesseract/wiki, marcando o idioma *Portuguese*. Não precisa pôr no PATH: o AutoDoc o procura em `Program Files`.
-  - **macOS:** `brew install tesseract tesseract-lang`
-  - **Linux (Debian/Ubuntu):** `sudo apt install tesseract-ocr tesseract-ocr-por`
-  - **Linux (Arch):** `sudo pacman -S tesseract tesseract-data-por`
+- Só isso. O Tesseract (para ler fotos) e, no Linux, o motor da janela são
+  instalados pelo próprio `instalar.py` — veja abaixo.
+
+### Instalação
+
+Um comando só, nos três sistemas:
+
+```bash
+git clone https://github.com/Trabalhos-UGV/AutoDoc.git
+cd AutoDoc
+python3 instalar.py        # no Windows: py instalar.py
+```
+
+O `instalar.py` descobre o sistema, vê o que falta e instala:
+
+| Sistema | O que ele instala sozinho | Como |
+| --- | --- | --- |
+| macOS | Tesseract com o português | `brew install tesseract tesseract-lang` — sem Homebrew, ele pergunta se pode instalá-lo |
+| Linux | Tesseract com o português e o motor da janela (PyGObject + WebKitGTK) | o gerenciador da distribuição: `pacman`, `apt-get`, `dnf` ou `zypper`, com `sudo` |
+| Windows | Tesseract e o português | `winget`; o português vai para `%LOCALAPPDATA%\AutoDoc\tessdata`, sem pedir administrador |
+
+O `sudo`, o Homebrew e o Windows podem pedir a senha — é por isso que essa
+parte roda no terminal, antes de a janela abrir. O que já está instalado é
+pulado; rodar de novo não reinstala nada. **Nada disso é obrigatório:** se algo
+não instalar, ele diz o comando para fazer à mão e segue. Sem o Tesseract as
+fotos esperam em `_Aguardando_OCR/`; sem o motor da janela as telas abrem no
+navegador.
+
+Depois disso ele cria o ambiente virtual, instala as dependências do Python e
+abre o **instalador gráfico**, em janela própria. A tela primeiro mostra qual
+pasta será vigiada e deixa escolher outra; a instalação só começa quando você
+confirma. Aí ela executa seis etapas de verdade: confere o Python, o ambiente
+virtual, as dependências e o OCR, prepara a pasta organizada e registra a pasta
+monitorada. Na última etapa cria o atalho do sistema — um `AutoDoc.app` no
+macOS, um atalho no menu Iniciar no Windows, um `.desktop` no Linux.
+
+Trocar a pasta depois de instalado reexecuta as etapas, que são idempotentes: a
+escolha vale de verdade, e não só na tela.
+
+A partir daí o AutoDoc abre pelo ícone, como qualquer programa instalado.
+
+> No macOS, o sistema bloqueia programas sem assinatura da Apple na primeira
+> execução: clique com o botão direito no ícone e escolha **Abrir**.
 
 #### Linux: a janela nativa
 
 No macOS e no Windows a janela do AutoDoc vem pronta com o `pip install`. **No
 Linux não**: lá o motor é o WebKitGTK do próprio sistema, alcançado pelo `gi`
-(PyGObject), e os dois vêm do gerenciador da distribuição.
+(PyGObject), e os dois vêm do gerenciador da distribuição. O `instalar.py`
+instala esses pacotes; para fazer à mão:
 
 | Distribuição | Comando |
 | --- | --- |
@@ -65,31 +104,11 @@ Duas coisas que custaram tempo e ficam registradas para o próximo:
 igual; as telas abrem no navegador padrão em vez de em janela própria, e o
 programa diz isso com todas as letras, junto com o comando da sua distribuição.
 
-### Instalação
+#### Instalação à mão
 
-```bash
-git clone https://github.com/Trabalhos-UGV/AutoDoc.git
-cd AutoDoc
-python3 instalar.py
-```
-
-O `instalar.py` abre o **instalador gráfico**, em janela própria. A tela primeiro
-mostra qual pasta será vigiada e deixa escolher outra; a instalação só começa
-quando você confirma. Aí ela executa seis etapas de verdade: procura o Python da
-máquina, cria o ambiente virtual, instala as dependências, procura o Tesseract,
-prepara a pasta organizada e registra a pasta monitorada. Na última etapa cria o
-atalho do sistema — um `AutoDoc.app` no macOS, um atalho no menu Iniciar no
-Windows, um `.desktop` no Linux.
-
-Trocar a pasta depois de instalado reexecuta as etapas, que são idempotentes: a
-escolha vale de verdade, e não só na tela.
-
-A partir daí o AutoDoc abre pelo ícone, como qualquer programa instalado.
-
-> No macOS, o sistema bloqueia programas sem assinatura da Apple na primeira
-> execução: clique com o botão direito no ícone e escolha **Abrir**.
-
-Para instalar à mão, sem o instalador:
+Sem o instalador — o Tesseract fica por sua conta (`brew install tesseract
+tesseract-lang`, `sudo apt install tesseract-ocr tesseract-ocr-por`, ou o
+instalador do UB Mannheim no Windows, marcando *Portuguese*):
 
 ```bash
 python3 -m venv venv                       # no Linux: --system-site-packages
@@ -189,7 +208,7 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 815 testes, ~23 segundos
+python -m unittest discover -s testes     # 853 testes, ~23 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
@@ -215,7 +234,7 @@ AutoDoc já pede, e cada um trabalha numa pasta temporária própria.
 | `test_main.py` | a linha de comando inteira |
 | `test_registro.py` | o registro em arquivo, no lugar de cada sistema |
 
-**A cobertura é de 100% das linhas** (4354 de 4361). As sete que faltam ficam de
+**A cobertura é de 100% das linhas** (4529 de 4536). As sete que faltam ficam de
 fora por motivo, e não por esquecimento:
 
 - quatro caminhos **só do Windows** (`%APPDATA%`, `venv\Scripts\`) — não dá
@@ -515,6 +534,7 @@ Além do escopo original da proposta, esta base inclui:
 - **Subpastas e mais formatos**: `.tif`, `.webp` e `.heic` do iPhone; o que não for lido vai para `_Nao_suportados/` em vez de ficar parado.
 - **Diagnóstico do OCR na tela**, com o comando de instalação de cada sistema, e fotos esperando o OCR em vez de irem para a revisão.
 - **OCR por página**, com a foto endireitada pelo EXIF e ampliada antes de ler.
+- **Instalação num comando só**: o `instalar.py` descobre o sistema e instala o Tesseract com o português (Homebrew, gerenciador da distribuição ou winget) e, no Linux, o motor da janela.
 - **Registro em arquivo por usuário** (`~/Library/Logs/AutoDoc`, `%LOCALAPPDATA%\AutoDoc\logs`, `~/.local/state/autodoc`), para quem abre pelo atalho e não tem terminal.
 
 ## O que ainda não está pronto
