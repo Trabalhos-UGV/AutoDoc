@@ -128,14 +128,33 @@ def _motor_ocr():
     return pytesseract, Image
 
 
+def tessdata_do_usuario() -> Path:
+    """Onde o `instalar.py` poe o portugues do Tesseract no Windows."""
+    local = os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+    return Path(local) / "AutoDoc" / "tessdata"
+
+
+def caminho_do_tesseract() -> str | None:
+    """O executavel do Tesseract: no PATH ou, no Windows, onde o instalador o deixa."""
+    if shutil.which("tesseract"):
+        return shutil.which("tesseract")
+    if sys.platform.startswith("win"):
+        for pasta in PASTAS_TESSERACT_WINDOWS:
+            if (pasta / "tesseract.exe").is_file():
+                return str(pasta / "tesseract.exe")
+    return None
+
+
 def _achar_tesseract_no_windows(pytesseract) -> None:
-    if not sys.platform.startswith("win") or shutil.which("tesseract"):
+    if not sys.platform.startswith("win"):
         return
-    for pasta in PASTAS_TESSERACT_WINDOWS:
-        executavel = pasta / "tesseract.exe"
-        if executavel.is_file():
-            pytesseract.pytesseract.tesseract_cmd = str(executavel)
-            return
+    # O pacote do winget so traz o ingles; o portugues fica numa pasta da
+    # pessoa, que nao pede administrador para ser escrita.
+    if (tessdata_do_usuario() / "por.traineddata").is_file():
+        os.environ.setdefault("TESSDATA_PREFIX", str(tessdata_do_usuario()))
+    caminho = caminho_do_tesseract()
+    if caminho and not shutil.which("tesseract"):
+        pytesseract.pytesseract.tesseract_cmd = caminho
 
 
 def como_instalar_ocr() -> str:
