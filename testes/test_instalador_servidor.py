@@ -19,9 +19,9 @@ from pathlib import Path
 from unittest import mock
 
 from autodoc import config as modulo_config
-from autodoc.config import Config
+from autodoc.config import RAIZ, Config
 from autodoc.instalacao import atalho, instalador as modulo_instalador
-from autodoc.instalacao.principal import Instalador, RotasInstalador
+from autodoc.instalacao.principal import Instalador, PastaRecusada, RotasInstalador
 from autodoc.web.servidor import ServidorHTTP
 
 
@@ -115,6 +115,26 @@ class TestInstalar(BaseInstalador):
         with mock.patch.object(modulo_instalador, "PASSOS", []):
             self.instalador.instalar(None)
         self.assertEqual(self.instalador.pasta_entrada, anterior)
+
+
+class TestPastaRecusada(BaseInstalador):
+    def test_pasta_do_programa_nao_e_gravada(self):
+        resposta = self.instalador.escolher_pasta(str(RAIZ / "exemplos"))
+
+        self.assertIn("próprio AutoDoc", resposta["erro"])
+        self.assertEqual(resposta["caminho"], str(self.base / "entrada"))
+        gravado = json.loads(self.config_json.read_text(encoding="utf-8"))
+        self.assertEqual(gravado["pasta_entrada"], str(self.base / "entrada"))
+
+    def test_instalar_nao_comeca_numa_pasta_recusada(self):
+        with self.assertRaises(PastaRecusada):
+            self.instalador.instalar(str(Path.home()))
+        self.assertIsNone(self.instalador.instalacao)
+
+    def test_instalar_sem_pasta_confere_a_que_ja_estava(self):
+        self.instalador.pasta_entrada = RAIZ
+        with self.assertRaises(PastaRecusada):
+            self.instalador.instalar(None)
 
 
 class TestEscolherPasta(BaseInstalador):
@@ -311,6 +331,15 @@ class TestRotas(unittest.TestCase):
         with mock.patch.object(self.instalador, "concluir",
                                return_value="http://127.0.0.1:8757/"):
             self.assertEqual(self.post("/api/concluir")["url"], "http://127.0.0.1:8757/")
+
+    def test_instalar_numa_pasta_recusada_responde_o_motivo(self):
+        with mock.patch.object(self.instalador, "instalar",
+                               side_effect=PastaRecusada("é a pasta pessoal inteira")):
+            with self.assertRaises(urllib.error.HTTPError) as falhou:
+                self.post("/api/instalar", {"pasta_entrada": str(Path.home())})
+
+        self.assertEqual(falhou.exception.code, 400)
+        self.assertIn("pessoal", json.loads(falhou.exception.read())["erro"])
 
     def test_corpo_que_nao_e_json_nao_derruba_o_servidor(self):
         with mock.patch.object(self.instalador, "instalar") as comecou:
