@@ -18,7 +18,7 @@ from functools import partial
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .. import __version__
+from .. import __version__, registro
 from ..catalogo import Catalogo
 from ..config import Config, problema_da_pasta
 from ..pipeline import Pipeline
@@ -253,7 +253,7 @@ class RotasInstalador(Rotas):
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    registro.configurar()
 
     instalador = Instalador()
     servidor = ServidorHTTP(
@@ -273,7 +273,7 @@ def main() -> int:
         # tratava apenas `ImportError`, e no Linux sem GTK o pywebview levanta
         # `WebViewException` — que escapava e derrubava o instalador inteiro
         # com um traceback, em vez de abrir a mesma tela no navegador.
-        janela.abrir(
+        aberta = janela.abrir(
             url,
             titulo=f"Instalador do AutoDoc — {__version__}",
             largura=980,
@@ -282,6 +282,9 @@ def main() -> int:
             fundo="#16140f",
             ao_criar=guardar,
         )
+        # No navegador, o app que o "Concluir" sobe roda dentro deste processo.
+        if aberta == "navegador":
+            janela.manter_aberto()
     finally:
         servidor.shutdown()
         servidor.server_close()

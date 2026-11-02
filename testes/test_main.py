@@ -109,7 +109,8 @@ class BaseCLI(unittest.TestCase):
 
         # `main()` liga o log no nível INFO para o processo inteiro; num teste
         # isso só despeja linha na saída da suíte.
-        self.enterContext(mock.patch.object(main.logging, "basicConfig"))
+        # Nem gravar no arquivo de registro de quem roda os testes.
+        self.enterContext(mock.patch.object(main.registro, "configurar"))
         self.enterContext(mock.patch.object(
             main.logging.getLogger(), "level", main.logging.CRITICAL))
 
@@ -199,6 +200,21 @@ class TestAbrirAplicativo(BaseCLI):
         self.assertIn("monitorando", saida)
         abrir.assert_called_once()
         self.assertTrue(abrir.call_args.args[0].startswith("http://127.0.0.1:"))
+
+    def test_no_navegador_o_processo_continua_vivo(self):
+        """Antes o servidor desligava na hora e o navegador abria uma página morta."""
+        catalogo = Catalogo(self.config.pasta_saida)
+        servidor = mock.Mock()
+        servidor.iniciar.return_value = "http://127.0.0.1:8757/"
+
+        with mock.patch.object(main, "Servidor", return_value=servidor), \
+             mock.patch.object(main.janela, "abrir", return_value="navegador"), \
+             mock.patch.object(main.janela, "manter_aberto") as segurou, \
+             contextlib.redirect_stdout(io.StringIO()):
+            main.abrir_aplicativo(self.config, catalogo, 8757)
+
+        segurou.assert_called_once()
+        servidor.parar.assert_called_once()
 
     def test_o_servidor_para_mesmo_se_a_janela_quebrar(self):
         """O `finally` existe para isso: sem ele o processo ficaria vivo em segundo plano."""

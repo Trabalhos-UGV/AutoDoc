@@ -420,7 +420,7 @@ class TestMainDoInstalador(BaseInstalador):
 
         # `main()` liga o log no nível INFO para o processo inteiro; deixado
         # ligado, ele despeja linha na saída de todos os testes seguintes.
-        self.enterContext(mock.patch.object(principal.logging, "basicConfig"))
+        self.enterContext(mock.patch.object(principal.registro, "configurar"))
 
     def test_sobe_o_servidor_abre_a_janela_e_encerra(self):
         from autodoc.instalacao import principal
@@ -451,6 +451,21 @@ class TestMainDoInstalador(BaseInstalador):
             self.assertEqual(principal.main(), 0)
 
         abriu.assert_called_once()
+        servidor.shutdown.assert_called_once()
+
+    def test_no_navegador_o_instalador_segura_o_processo(self):
+        """O app que o "Concluir" sobe roda dentro deste processo."""
+        from autodoc.instalacao import principal
+
+        servidor = mock.Mock()
+        with mock.patch.object(principal, "ServidorHTTP", return_value=servidor), \
+             mock.patch.object(principal.threading, "Thread"), \
+             mock.patch.object(principal.janela, "abrir", return_value="navegador"), \
+             mock.patch.object(principal.janela, "manter_aberto") as segurou, \
+             mock.patch("builtins.print"):
+            self.assertEqual(principal.main(), 0)
+
+        segurou.assert_called_once()
         servidor.shutdown.assert_called_once()
 
 
