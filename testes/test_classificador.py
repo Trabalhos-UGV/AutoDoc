@@ -10,6 +10,7 @@ from autodoc.classificador import (
     NAO_CLASSIFICADO,
     ROTULOS,
     classificar,
+    com_nome,
     normalizar,
     pontuar,
     tolerante,
@@ -176,6 +177,48 @@ class TestCategoriasNovas(unittest.TestCase):
     def test_fatura_com_linha_digitavel_nao_vira_boleto(self):
         texto = "Fatura do cartao  Total da fatura 900  Pague com boleto: linha digitavel 2609"
         self.assertEqual(classificar(texto).categoria, "fatura_cartao")
+
+
+class TestAlemDasContas(unittest.TestCase):
+    """O que chega numa pasta de Downloads e nao e conta nem documento pessoal."""
+
+    def test_cada_uma(self):
+        for texto, categoria in (
+            ("Certificamos que o aluno concluiu com êxito o curso. Carga horária: 10", "certificado"),
+            ("Exercícios em sala · Aula 3 — Padrões de Projeto", "estudos"),
+            ("Mini plano de marketing  Atividade em Grupo  atividade dos 4 Ps", "estudos"),
+            ("EYEMECH Assembly Document  PARTS, TOOLS AND REQUIREMENTS  3D printed", "manual_tecnico"),
+            ("Designator\tDevice\tFootprint\tMid X\tMid Y", "manual_tecnico"),
+            ("This work is licensed under https://creativecommons.org/licenses/by-nc-sa/4.0/", "licenca"),
+            ("CAMPANHA DE CONSCIENTIZAÇÃO LGPD  Como se proteger", "informativo"),
+            ("LEIA-ME  Como importar: envie o arquivo. Instalação manual: copie a pasta", "documentacao"),
+            ("use quando o usuario pedir para formatar  pip install python-docx", "documentacao"),
+        ):
+            with self.subTest(categoria=categoria):
+                self.assertEqual(classificar(texto).categoria, categoria)
+                self.assertIn(categoria, ROTULOS)
+
+    def test_informativo_sozinho_e_fraco(self):
+        # Rodape de conta: "mensagem informativa" nao faz da conta um folheto.
+        self.assertEqual(classificar("Informativo: confira seus dados").categoria, NAO_CLASSIFICADO)
+
+
+class TestNomeDoArquivo(unittest.TestCase):
+    def test_nome_vira_palavras_antes_do_texto(self):
+        self.assertEqual(com_nome("corpo", "Plano_de-Aula.v2.pdf"), "Plano de Aula v2\ncorpo")
+
+    def test_sem_nome_o_texto_fica_igual(self):
+        self.assertEqual(com_nome("corpo", ""), "corpo")
+        self.assertEqual(com_nome("corpo", "___.txt"), "corpo")
+
+    def test_nome_decide_quando_o_texto_nao_diz(self):
+        texto = "Aluno(a): Fulano  Curso de Dart"
+        self.assertEqual(classificar(texto).categoria, NAO_CLASSIFICADO)
+        self.assertEqual(classificar(texto, "certificado-3497633.pdf").categoria, "certificado")
+
+    def test_chave_sai_com_a_grafia_do_nome(self):
+        resultado = classificar("Carga horaria: 10", "certificado-1.pdf")
+        self.assertIn("certificado", resultado.chaves)
 
 
 if __name__ == "__main__":

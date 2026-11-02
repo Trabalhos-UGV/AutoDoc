@@ -26,20 +26,38 @@ from .catalogo import (
     Catalogo,
     Ficha,
 )
-from .classificador import NAO_CLASSIFICADO, ROTULOS, Classificacao, classificar
+from .classificador import (
+    IMAGENS,
+    NAO_CLASSIFICADO,
+    ROTULOS,
+    TEXTOS,
+    Classificacao,
+    classificar,
+)
 from .config import Config
 from .datas import data_do_documento, extrair_data
 from .extrator import (
+    EXTENSOES_IMAGEM,
+    EXTENSOES_TEXTO,
     ExtracaoIndisponivel,
     OcrIndisponivel,
     extrair_com_origem,
     hash_arquivo,
+    sobre_a_imagem,
 )
 
 logger = logging.getLogger(__name__)
 
 # Quanto do texto lido aparece no painel "trecho lido do documento".
 TAMANHO_TRECHO = 220
+
+# Ate este lado, em pixels, a imagem e icone ou elemento de interface: nenhuma
+# foto de documento, de celular ou de scanner, e tao pequena.
+LADO_MAXIMO_ICONE = 600
+
+# Texto de uma linha so, sem espaco, ate este tamanho: "8.0.29", um hash, um
+# numero de versao. Nao e documento, e nao ha o que revisar nele.
+TAMANHO_MAXIMO_LINHA_SOLTA = 64
 
 
 @dataclass
@@ -65,6 +83,53 @@ def _trecho(texto: str) -> str:
     if len(limpo) <= TAMANHO_TRECHO:
         return limpo
     return limpo[:TAMANHO_TRECHO].rsplit(" ", 1)[0] + "…"
+
+
+def _pelo_tipo(caminho: Path, texto: str, classificacao: Classificacao) -> Classificacao:
+    """Quando o conteudo nao e de documento nenhum, o que o arquivo e.
+
+    Um icone ou uma foto sem texto nao e duvida: e uma imagem. Mandados para
+    `_Revisar/` com 0%, eles enchiam a fila de revisao com o que ninguem
+    precisa olhar — foi assim que 183 arquivos de uma pasta de Downloads
+    apareceram todos como "nao classificado". A revisao fica para o que pontuou
+    em alguma regra sem convencer: ali, sim, errar a categoria e pior que
+    perguntar.
+    """
+    if classificacao.categoria != NAO_CLASSIFICADO or classificacao.chaves:
+        return classificacao
+
+    extensao = caminho.suffix.lower()
+    if extensao in EXTENSOES_IMAGEM:
+        tamanho, _data = sobre_a_imagem(caminho)
+        if tamanho is None:
+            descricao = "imagem"
+        else:
+            medidas = f"{tamanho[0]}×{tamanho[1]}"
+            descricao = (
+                f"ícone ou elemento de interface ({medidas})"
+                if max(tamanho) <= LADO_MAXIMO_ICONE
+                else f"foto ou imagem ({medidas})"
+            )
+        return Classificacao(
+            categoria=IMAGENS,
+            confianca=1.0,
+            regra=f"{descricao}, sem texto de documento — identificada pelo tipo de arquivo",
+        )
+
+    limpo = texto.strip()
+    if (
+        extensao in EXTENSOES_TEXTO
+        and limpo
+        and len(limpo) <= TAMANHO_MAXIMO_LINHA_SOLTA
+        and not any(c.isspace() for c in limpo)
+    ):
+        return Classificacao(
+            categoria=TEXTOS,
+            confianca=1.0,
+            regra=f'arquivo de texto de uma linha só ("{limpo}"), sem conteúdo de documento',
+        )
+
+    return classificacao
 
 
 def _formatar_tamanho(bytes_: int) -> str:
@@ -144,13 +209,15 @@ class Pipeline:
             "detalhe": ilegivel or f"{origem} · {len(texto)} caracteres lidos",
         })
 
-        classificacao = classificar(texto)
+        classificacao = classificar(texto, caminho.name)
         if ilegivel:
             classificacao = Classificacao(
                 categoria=NAO_CLASSIFICADO,
                 confianca=0.0,
                 regra=f"não foi possível ler o conteúdo — {ilegivel}",
             )
+        else:
+            classificacao = _pelo_tipo(caminho, texto, classificacao)
         etapas.append({
             "titulo": "Classificação",
             "detalhe": (
@@ -159,7 +226,7 @@ class Pipeline:
             ),
         })
 
-        data_pasta, detalhe_data = self._resolver_data(texto, classificacao.categoria)
+        data_pasta, detalhe_data = self._resolver_data(texto, classificacao.categoria, caminho)
         data = extrair_data(texto) or data_pasta
         etapas.append({"titulo": "Data", "detalhe": detalhe_data})
 
@@ -265,8 +332,8 @@ class Pipeline:
             logger.warning("nao foi possivel reler %s: %s", caminho.name, erro)
             texto, origem = "", f"nao foi possivel ler: {erro}"
 
-        classificacao = classificar(texto)
-        data_pasta, detalhe_data = self._resolver_data(texto, classificacao.categoria)
+        classificacao = _pelo_tipo(caminho, texto, classificar(texto, caminho.name))
+        data_pasta, detalhe_data = self._resolver_data(texto, classificacao.categoria, caminho)
 
         return Ficha(
             arquivo=caminho.name,
@@ -293,14 +360,24 @@ class Pipeline:
         )
 
     @staticmethod
-    def _resolver_data(texto: str, categoria: str) -> tuple[str | None, str]:
+    def _resolver_data(
+        texto: str, categoria: str, caminho: Path | None = None
+    ) -> tuple[str | None, str]:
         """A data do documento e a explicacao de como ela foi escolhida.
 
         Qual data vale depende do tipo (ver `datas.data_do_documento`). Sem data
         no texto, nao ha data: o documento vai para `sem-data/`. Usar a data de
         modificacao do arquivo, como antes, arquivava um PDF baixado hoje no mes
         de hoje — e ninguem o achava no mes a que ele pertence.
+
+        Imagem sem texto de documento so tem uma data real: a da captura, que a
+        camera grava no EXIF. O que o OCR leu de um icone nao e data de nada.
         """
+        if categoria == IMAGENS and caminho is not None:
+            _tamanho, capturada = sobre_a_imagem(caminho)
+            if capturada:
+                return capturada, f"data de captura da foto (EXIF): {capturada}"
+            return None, "imagem sem data de captura → pasta sem-data"
         return data_do_documento(texto, categoria)
 
     def _pasta_destino(self, classificacao: Classificacao, data: str | None) -> Path:
