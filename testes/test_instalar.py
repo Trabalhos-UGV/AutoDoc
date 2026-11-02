@@ -258,6 +258,11 @@ class TestParteGraficaOpcional(BasePreparo):
 
 
 class TestMain(unittest.TestCase):
+    def setUp(self):
+        # Nenhum teste pode instalar programa de verdade na maquina de quem roda.
+        self.programas = self.enterContext(mock.patch.object(
+            instalar, "instalar_programas_do_sistema", return_value=[]))
+
     def rodar(self):
         saida = io.StringIO()
         with contextlib.redirect_stdout(saida):
@@ -294,6 +299,286 @@ class TestMain(unittest.TestCase):
         comando = [str(c) for c in rodou.call_args.args[0]]
         self.assertEqual(comando[0], "/tmp/venv/bin/python")
         self.assertIn("autodoc.instalacao.principal", comando)
+        self.programas.assert_called_once()
+
+
+def resultado(codigo=0, stdout="", stderr=""):
+    return SimpleNamespace(returncode=codigo, stdout=stdout, stderr=stderr)
+
+
+class BaseProgramas(unittest.TestCase):
+    """Todo comando e dublado: o que se confere e o que teria sido rodado."""
+
+    def setUp(self):
+        self.rodados: list[list[str]] = []
+        self.falhar: set[str] = set()
+        self.enterContext(mock.patch.object(subprocess, "run", self.dublar))
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
+        self._temporaria = tempfile.TemporaryDirectory()
+        self.pasta = Path(self._temporaria.name)
+        self.addCleanup(self._temporaria.cleanup)
+
+    def dublar(self, comando, *args, **kwargs):
+        comando = [str(c) for c in comando]
+        self.rodados.append(comando)
+        texto = " ".join(comando)
+        return resultado(1 if any(f in texto for f in self.falhar) else 0)
+
+    def no(self, plataforma, which=None, **extras):
+        caminhos = which or {}
+        contextos = [
+            mock.patch.object(instalar.sys, "platform", plataforma),
+            mock.patch.object(instalar.shutil, "which", lambda nome: caminhos.get(nome)),
+        ]
+        for nome, valor in extras.items():
+            contextos.append(mock.patch.object(instalar, nome, valor))
+        pilha = contextlib.ExitStack()
+        for contexto in contextos:
+            pilha.enter_context(contexto)
+        self.addCleanup(pilha.close)
+
+    def faltando(self, tesseract=True, ocr=True, janela=False):
+        return {"tesseract": tesseract, "ocr": ocr, "janela": janela}
+
+
+class TestOQueFalta(BaseProgramas):
+    def test_tudo_instalado_nao_instala_nada(self):
+        self.no("darwin", o_que_falta=lambda: self.faltando(False, False))
+        self.assertEqual(instalar.instalar_programas_do_sistema(), [])
+        self.assertEqual(self.rodados, [])
+
+    def test_le_portugues_pela_lista_de_idiomas(self):
+        with mock.patch.object(subprocess, "run",
+                               return_value=resultado(stdout="List of languages:\neng\npor\n")):
+            self.assertTrue(instalar.le_portugues("tesseract"))
+        with mock.patch.object(subprocess, "run", return_value=resultado(stderr="eng\nosd")):
+            self.assertFalse(instalar.le_portugues("tesseract"))
+
+    def test_o_portugues_baixado_no_windows_conta(self):
+        (self.pasta / "por.traineddata").touch()
+        self.no("win32", tessdata_do_usuario=lambda: self.pasta)
+        with mock.patch.object(subprocess, "run", return_value=resultado(stdout="por")) as rodou:
+            self.assertTrue(instalar.le_portugues("tesseract.exe"))
+        self.assertEqual(rodou.call_args.kwargs["env"]["TESSDATA_PREFIX"], str(self.pasta))
+
+    def test_acha_o_tesseract_fora_do_path_no_windows(self):
+        (self.pasta / "tesseract.exe").touch()
+        self.no("win32", PASTAS_TESSERACT_WINDOWS=(self.pasta / "nada", self.pasta))
+        self.assertEqual(instalar.achar_tesseract(), str(self.pasta / "tesseract.exe"))
+        self.no("darwin")
+        self.assertIsNone(instalar.achar_tesseract())
+        self.no("linux", which={"tesseract": "/usr/bin/tesseract"})
+        self.assertEqual(instalar.achar_tesseract(), "/usr/bin/tesseract")
+
+    def test_o_que_falta_junta_as_tres_perguntas(self):
+        self.no("linux", achar_tesseract=lambda: "/usr/bin/tesseract",
+                le_portugues=lambda _: False, tem_motor_da_janela=lambda: True)
+        self.assertEqual(instalar.o_que_falta(),
+                         {"tesseract": False, "ocr": True, "janela": False})
+
+    def test_motor_da_janela_aceita_o_webkit_antigo(self):
+        self.falhar = {"'4.1'"}
+        self.assertTrue(instalar.tem_motor_da_janela())
+        self.falhar = {"'4.1'", "'4.0'"}
+        self.assertFalse(instalar.tem_motor_da_janela())
+
+    def test_pasta_do_portugues_no_windows(self):
+        with mock.patch.dict(instalar.os.environ, {"LOCALAPPDATA": "C:/Local"}):
+            self.assertEqual(instalar.tessdata_do_usuario(),
+                             Path("C:/Local") / "AutoDoc" / "tessdata")
+        with mock.patch.dict(instalar.os.environ, {}, clear=True):
+            self.assertEqual(instalar.tessdata_do_usuario(),
+                             Path.home() / "AppData" / "Local" / "AutoDoc" / "tessdata")
+
+    def test_sistema_desconhecido_avisa_e_segue(self):
+        self.no("sunos5", o_que_falta=lambda: self.faltando())
+        self.assertTrue(instalar.instalar_programas_do_sistema())
+
+
+class TestLinux(BaseProgramas):
+    def instalar(self, gerenciador, faltando, root=False):
+        self.no("linux", which={gerenciador: f"/usr/bin/{gerenciador}", "sudo": "/usr/bin/sudo"},
+                o_que_falta=lambda: faltando)
+        with mock.patch.object(instalar.os, "geteuid", return_value=0 if root else 1000, create=True):
+            return instalar.instalar_programas_do_sistema()
+
+    def test_arch_instala_ocr_e_janela_de_uma_vez_com_sudo(self):
+        pendente = self.instalar("pacman", self.faltando(janela=True))
+        self.assertEqual(pendente, [])
+        self.assertEqual(self.rodados, [["sudo", "pacman", "-S", "--needed", "--noconfirm",
+                                         "tesseract", "tesseract-data-por",
+                                         "python-gobject", "webkit2gtk-4.1"]])
+
+    def test_so_o_que_falta(self):
+        self.instalar("dnf", self.faltando(tesseract=False, ocr=False, janela=True))
+        self.assertEqual(self.rodados[-1][-2:], ["python3-gobject", "webkit2gtk4.1"])
+
+    def test_como_root_nao_precisa_de_sudo(self):
+        self.instalar("zypper", self.faltando(), root=True)
+        self.assertEqual(self.rodados[0][0], "zypper")
+
+    def test_ubuntu_atualiza_a_lista_e_cai_no_webkit_antigo(self):
+        self.falhar = {"webkit2-4.1"}
+        pendente = self.instalar("apt-get", self.faltando(janela=True))
+
+        self.assertEqual(pendente, [])
+        self.assertEqual(self.rodados[0], ["sudo", "apt-get", "update"])
+        self.assertIn("gir1.2-webkit2-4.0", self.rodados[-1])
+
+    def test_falha_diz_o_comando_para_fazer_a_mao(self):
+        self.falhar = {"pacman"}
+        pendente = self.instalar("pacman", self.faltando())
+        self.assertIn("sudo pacman", pendente[0])
+
+    def test_distribuicao_sem_gerenciador_conhecido(self):
+        self.no("linux", o_que_falta=lambda: self.faltando())
+        self.assertIn("gerenciador", instalar.instalar_programas_do_sistema()[0])
+
+    def test_os_pacotes_da_janela_sao_os_que_a_janela_recomenda(self):
+        """Repetidos de propósito, porque este arquivo não importa o pacote."""
+        from autodoc.web.janela import PACOTES_DO_MOTOR
+
+        recomendados = " ".join(comando for _, comando in PACOTES_DO_MOTOR.values())
+        for _, _, pacotes in instalar.GERENCIADORES_LINUX.values():
+            for pacote in pacotes:
+                self.assertIn(pacote, recomendados)
+
+    def test_comando_que_nem_existe_e_falha_e_nao_excecao(self):
+        with mock.patch.object(subprocess, "run", side_effect=FileNotFoundError("sudo")):
+            self.assertFalse(instalar._rodar(["sudo", "nada"]))
+
+
+class TestMacOS(BaseProgramas):
+    def test_com_homebrew_instala_tesseract_e_idiomas(self):
+        self.no("darwin", which={"brew": "/opt/homebrew/bin/brew"},
+                o_que_falta=lambda: self.faltando())
+        self.assertEqual(instalar.instalar_programas_do_sistema(), [])
+        self.assertEqual(self.rodados,
+                         [["/opt/homebrew/bin/brew", "install", "tesseract", "tesseract-lang"]])
+
+    def test_brew_fora_do_path_tambem_e_achado(self):
+        brew = self.pasta / "brew"
+        brew.touch()
+        self.no("darwin", BREW=(str(self.pasta / "nada"), str(brew)))
+        self.assertEqual(instalar._achar_brew(), str(brew))
+
+    def test_brew_que_falha(self):
+        self.falhar = {"brew install"}
+        self.no("darwin", which={"brew": "/opt/homebrew/bin/brew"},
+                o_que_falta=lambda: self.faltando())
+        self.assertIn("brew install", instalar.instalar_programas_do_sistema()[0])
+
+    def test_sem_homebrew_pergunta_antes_de_instalar(self):
+        self.no("darwin", o_que_falta=lambda: self.faltando(), perguntar=lambda _: False, BREW=())
+        pendente = instalar.instalar_programas_do_sistema()
+        self.assertIn("brew.sh", pendente[0])
+        self.assertEqual(self.rodados, [])
+
+    def test_aceitando_instala_o_homebrew_e_depois_o_tesseract(self):
+        achados = iter([None, "/opt/homebrew/bin/brew"])
+        self.no("darwin", o_que_falta=lambda: self.faltando(), perguntar=lambda _: True,
+                _achar_brew=lambda: next(achados))
+        self.assertEqual(instalar.instalar_programas_do_sistema(), [])
+        self.assertEqual(self.rodados[0][:2], ["curl", "-fsSL"])
+        self.assertEqual(self.rodados[1][:2], ["/bin/bash", "-c"])
+        self.assertEqual(self.rodados[2][1:], ["install", "tesseract", "tesseract-lang"])
+
+    def test_homebrew_que_nao_instala(self):
+        self.falhar = {"curl"}
+        self.no("darwin", o_que_falta=lambda: self.faltando(), perguntar=lambda _: True,
+                _achar_brew=lambda: None)
+        self.assertIn("Homebrew não instalou", instalar.instalar_programas_do_sistema()[0])
+
+    def test_homebrew_instalado_mas_nao_achado(self):
+        self.no("darwin", o_que_falta=lambda: self.faltando(), perguntar=lambda _: True,
+                _achar_brew=lambda: None)
+        self.assertIn("terminal novo", instalar.instalar_programas_do_sistema()[0])
+
+
+class TestPerguntar(unittest.TestCase):
+    def responder(self, texto, terminal=True):
+        entrada = mock.Mock(isatty=lambda: terminal)
+        with mock.patch.object(instalar.sys, "stdin", entrada), \
+             mock.patch("builtins.input", return_value=texto):
+            return instalar.perguntar("Instalar?")
+
+    def test_enter_e_sim(self):
+        self.assertTrue(self.responder(""))
+        self.assertTrue(self.responder("s"))
+        self.assertFalse(self.responder("n"))
+
+    def test_sem_terminal_e_nao(self):
+        self.assertFalse(self.responder("s", terminal=False))
+
+    def test_entrada_fechada_e_nao(self):
+        with mock.patch.object(instalar.sys, "stdin", mock.Mock(isatty=lambda: True)), \
+             mock.patch("builtins.input", side_effect=EOFError):
+            self.assertFalse(instalar.perguntar("Instalar?"))
+
+
+class TestWindows(BaseProgramas):
+    def preparar(self, tesseract="C:/TO/tesseract.exe", portugues=False, winget=True):
+        self.tessdata = self.pasta / "tessdata"
+        instalado = self.pasta / "Tesseract-OCR" / "tessdata"
+        instalado.mkdir(parents=True)
+        (instalado / "eng.traineddata").write_text("ingles", encoding="utf-8")
+        executavel = str(self.pasta / "Tesseract-OCR" / "tesseract.exe") if tesseract else None
+        self.no("win32", which={"winget": "C:/winget.exe"} if winget else {},
+                o_que_falta=lambda: self.faltando(tesseract=executavel is None),
+                achar_tesseract=lambda: executavel, le_portugues=lambda _: portugues,
+                tessdata_do_usuario=lambda: self.tessdata,
+                baixar=lambda url, destino: destino.write_text("por") is not None)
+
+    def test_instala_pelo_winget_e_baixa_o_portugues(self):
+        self.preparar(tesseract=None)
+        # o winget instala; depois dele o Tesseract aparece
+        with mock.patch.object(instalar, "achar_tesseract",
+                               return_value=str(self.pasta / "Tesseract-OCR" / "tesseract.exe")):
+            self.assertEqual(instalar.instalar_programas_do_sistema(), [])
+
+        self.assertIn(instalar.WINGET_TESSERACT, self.rodados[0])
+        self.assertTrue((self.tessdata / "por.traineddata").exists())
+        self.assertTrue((self.tessdata / "eng.traineddata").exists(), "o inglês vai junto")
+
+    def test_ja_com_portugues_nao_baixa(self):
+        self.preparar(portugues=True)
+        with mock.patch.object(instalar, "o_que_falta",
+                               return_value=self.faltando(tesseract=False, ocr=True)):
+            self.assertEqual(instalar.instalar_programas_do_sistema(), [])
+        self.assertFalse(self.tessdata.exists())
+
+    def test_sem_winget(self):
+        self.preparar(tesseract=None, winget=False)
+        self.assertIn("UB-Mannheim", instalar.instalar_programas_do_sistema()[0])
+
+    def test_winget_que_falha(self):
+        self.preparar(tesseract=None)
+        self.falhar = {"winget"}
+        self.assertIn("winget install", instalar.instalar_programas_do_sistema()[0])
+
+    def test_instalado_mas_nao_achado(self):
+        self.preparar(tesseract=None)
+        self.assertIn("de novo", instalar.instalar_programas_do_sistema()[0])
+
+    def test_portugues_que_nao_baixa(self):
+        self.preparar()
+        with mock.patch.object(instalar, "baixar", return_value=False):
+            self.assertIn("não baixou", instalar.instalar_programas_do_sistema()[0])
+
+
+class TestBaixar(BaseProgramas):
+    def test_pelo_curl(self):
+        self.no("win32", which={"curl": "C:/curl.exe"})
+        self.assertTrue(instalar.baixar("https://x/por", self.pasta / "a" / "por"))
+        self.assertEqual(self.rodados[0][:3], ["curl", "-fsSL", "-o"])
+
+    def test_sem_curl_pelo_urllib(self):
+        self.no("win32")
+        with mock.patch.object(instalar.urllib.request, "urlretrieve") as baixou:
+            self.assertTrue(instalar.baixar("https://x/por", self.pasta / "por"))
+        baixou.assert_called_once()
+        with mock.patch.object(instalar.urllib.request, "urlretrieve", side_effect=OSError("rede")):
+            self.assertFalse(instalar.baixar("https://x/por", self.pasta / "por"))
 
 
 if __name__ == "__main__":
