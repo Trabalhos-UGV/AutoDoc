@@ -209,26 +209,50 @@ class TestProcessarPendentes(BaseComPasta):
         (self.config.pasta_entrada / "uma pasta").mkdir()
         self.assertEqual(processar_pendentes(self.pipeline), 0)
 
-    def test_le_os_arquivos_de_subpastas(self):
-        """Arrastar uma pasta inteira de contas para a entrada."""
+    def test_subpasta_nao_e_tocada(self):
+        """Uma pasta de Downloads com projetos dentro: nada sai delas."""
         subpasta = self.config.pasta_entrada / "contas de 2026"
         subpasta.mkdir()
-        (subpasta / "luz.txt").write_text(
-            (EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8"), encoding="utf-8")
+        conta = subpasta / "luz.txt"
+        conta.write_text((EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8"), encoding="utf-8")
 
-        self.assertEqual(processar_pendentes(self.pipeline), 1)
-        self.assertFalse((subpasta / "luz.txt").exists())
+        self.assertEqual(processar_pendentes(self.pipeline), 0)
+        self.assertTrue(conta.exists())
 
-    def test_pula_pasta_oculta_e_a_pasta_organizada(self):
-        oculta = self.config.pasta_entrada / ".git"
-        oculta.mkdir()
-        (oculta / "config.txt").write_text("x", encoding="utf-8")
-        self.config.pasta_saida = self.config.pasta_entrada / "organizados"
-        self.config.pasta_saida.mkdir()
-        (self.config.pasta_saida / "ja.txt").write_text("x", encoding="utf-8")
+    def test_aplicativo_na_entrada_fica_inteiro(self):
+        recursos = self.config.pasta_entrada / "Jogo.app" / "Contents" / "Resources"
+        recursos.mkdir(parents=True)
+        from PIL import Image
+        Image.new("RGB", (16, 16)).save(recursos / "icone.png")
+        (recursos / "Localizable.strings").write_text("x", encoding="utf-8")
 
-        self.assertEqual(monitor.arquivos_da_entrada(
-            self.config.pasta_entrada, self.config.pasta_saida), [])
+        self.assertEqual(processar_pendentes(self.pipeline), 0)
+        self.assertEqual(sorted(c.name for c in recursos.iterdir()), ["Localizable.strings", "icone.png"])
+
+    def test_formato_que_nao_le_fica_onde_esta(self):
+        (self.config.pasta_entrada / "projeto.zip").write_bytes(b"PK")
+        (self.config.pasta_entrada / "sketch.ino").write_text("void setup(){}", encoding="utf-8")
+
+        self.assertEqual(monitor.arquivos_da_entrada(self.config.pasta_entrada, self.config.extensoes), [])
+        processar_pendentes(self.pipeline)
+        self.assertTrue((self.config.pasta_entrada / "projeto.zip").exists())
+
+    def test_atalho_fica_onde_esta(self):
+        alvo = self.config.pasta_saida / "fora.txt"
+        alvo.write_text("CONTRATO DE LOCACAO", encoding="utf-8")
+        atalho = self.config.pasta_entrada / "atalho.txt"
+        atalho.symlink_to(alvo)
+
+        self.assertEqual(monitor.arquivos_da_entrada(self.config.pasta_entrada, self.config.extensoes), [])
+
+    def test_so_o_primeiro_nivel_entra_na_lista(self):
+        self.largar("conta_energia_marco.txt")
+        (self.config.pasta_entrada / "pasta").mkdir()
+        (self.config.pasta_entrada / "pasta" / "dentro.txt").write_text("x", encoding="utf-8")
+
+        self.assertEqual(
+            [c.name for c in monitor.arquivos_da_entrada(self.config.pasta_entrada, self.config.extensoes)],
+            ["conta_energia_marco.txt"])
 
     def test_um_arquivo_problematico_nao_impede_os_outros(self):
         """O defeito: uma exceção aqui fazia o AutoDoc inteiro não subir."""
@@ -298,6 +322,23 @@ class TestManipulador(BaseComPasta):
         self.manipulador.on_created(
             EventoFalso(src_path=self.config.pasta_entrada / "nova", is_directory=True))
         self.assertEqual(len(self.catalogo), 0)
+
+    def test_arquivo_criado_numa_subpasta_e_ignorado(self):
+        subpasta = self.config.pasta_entrada / "Jogo.app" / "Contents"
+        subpasta.mkdir(parents=True)
+        alvo = subpasta / "Info.txt"
+        alvo.write_text("CONTRATO DE LOCACAO", encoding="utf-8")
+        with mock.patch.object(self.pipeline, "processar") as processou:
+            self.manipulador.on_created(EventoFalso(src_path=alvo))
+        processou.assert_not_called()
+        self.assertTrue(alvo.exists())
+
+    def test_formato_que_nao_le_e_ignorado(self):
+        alvo = self.config.pasta_entrada / "instalador.dmg"
+        alvo.write_bytes(b"x")
+        with mock.patch.object(self.pipeline, "processar") as processou:
+            self.manipulador.on_created(EventoFalso(src_path=alvo))
+        processou.assert_not_called()
 
     def test_arquivo_dentro_da_pasta_organizada_e_ignorado(self):
         self.config.pasta_saida = self.config.pasta_entrada / "organizados"

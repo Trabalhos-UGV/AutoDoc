@@ -112,25 +112,29 @@ def _avisar(ao_processar, resultado) -> None:
         logger.exception("falha ao notificar documento novo")
 
 
-def arquivos_da_entrada(pasta: Path, saida: Path) -> list[Path]:
-    """Os documentos da pasta vigiada, subpastas inclusive.
+def e_da_entrada(caminho: Path, pasta: Path, extensoes) -> bool:
+    """Se o AutoDoc pode tirar este arquivo do lugar.
 
-    Arrastar uma pasta inteira de contas para a entrada e o jeito natural de
-    usar; antes as subpastas eram ignoradas e os arquivos dentro delas nunca
-    saiam dali. Pasta oculta fica de fora, e a pasta organizada tambem — se
-    alguem a configurou dentro da entrada, ela se reprocessaria sem fim.
+    So o que esta **solto no primeiro nivel** da pasta vigiada e num formato que
+    ele le. Subpasta e de quem a criou: entrar nelas esvaziou, numa pasta de
+    Downloads, tres aplicativos `.app` e os projetos de quem a usava — 819
+    arquivos que nao eram documento de ninguem, levados para `_Nao_suportados/`.
+    Atalho tambem fica: move-lo quebraria quem aponta para ele.
     """
-    achados = []
-    for caminho in sorted(pasta.rglob("*")):
-        relativo = caminho.relative_to(pasta)
-        if any(parte.startswith(".") for parte in relativo.parts[:-1]):
-            continue
-        if not caminho.is_file() or deve_ignorar(caminho):
-            continue
-        if caminho == saida or saida in caminho.parents:
-            continue
-        achados.append(caminho)
-    return achados
+    # resolvido: o FSEvents do macOS avisa por /private/var o que foi
+    # vigiado como /var
+    return (
+        caminho.parent.resolve() == pasta.resolve()
+        and caminho.suffix.lower() in extensoes
+        and not caminho.is_symlink()
+        and caminho.is_file()
+        and not deve_ignorar(caminho)
+    )
+
+
+def arquivos_da_entrada(pasta: Path, extensoes) -> list[Path]:
+    """Os documentos soltos na pasta vigiada (ver `e_da_entrada`)."""
+    return [c for c in sorted(pasta.iterdir()) if e_da_entrada(c, pasta, extensoes)]
 
 
 def aguardando_ocr(pipeline: Pipeline) -> list[Path]:
@@ -157,7 +161,7 @@ def processar_pendentes(pipeline: Pipeline, ao_processar=None) -> int:
         return 0
 
     total = 0
-    pendentes = arquivos_da_entrada(pasta, pipeline.config.pasta_saida) + aguardando_ocr(pipeline)
+    pendentes = arquivos_da_entrada(pasta, pipeline.config.extensoes) + aguardando_ocr(pipeline)
     for caminho in pendentes:
         # Um arquivo ainda sendo copiado quando o programa abre tem que ser
         # esperado aqui tambem, e nao so no caminho do watchdog.
@@ -213,10 +217,8 @@ class _Manipulador:
         # Num evento de movimento o arquivo esta no destino; usar o `src_path`
         # apontaria para de onde ele saiu, que ja nao existe mais.
         caminho = Path(evento.dest_path if destino else evento.src_path)
-        if deve_ignorar(caminho):
-            return
-        saida = self.pipeline.config.pasta_saida
-        if saida in caminho.parents:
+        config = self.pipeline.config
+        if not e_da_entrada(caminho, config.pasta_entrada, config.extensoes):
             return
         if not aguardar_arquivo_pronto(caminho):
             return
@@ -288,7 +290,8 @@ def criar_observador(pipeline: Pipeline, ao_processar=None) -> Vigia:
     observador.schedule(
         _Manipulador(pipeline, ao_processar),
         str(pipeline.config.pasta_entrada),
-        recursive=True,
+        # So o primeiro nivel: ver `e_da_entrada`.
+        recursive=False,
     )
     vigia = Vigia(observador, pipeline, ao_processar)
     vigia.start()
