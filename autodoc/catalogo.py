@@ -70,6 +70,9 @@ class Ficha:
     etapas: list[dict[str, str]] = field(default_factory=list)
     origem: str = ""
     tamanho: int = 0
+    # A data que decidiu a pasta (o mes de referencia de uma conta, que pode
+    # nao ser a data mostrada, o vencimento). Vazia em ficha antiga.
+    data_pasta: str | None = None
     processado_em: str = ""
     id: int = 0
 

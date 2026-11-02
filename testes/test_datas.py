@@ -6,7 +6,10 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from autodoc.datas import extrair_data, extrair_data_rotulada, extrair_datas
+from unittest import mock
+
+from autodoc import datas
+from autodoc.datas import data_do_documento, extrair_data, extrair_data_rotulada, extrair_datas
 
 EXEMPLOS = Path(__file__).resolve().parent.parent / "exemplos"
 
@@ -106,6 +109,84 @@ class TestExtrairData(unittest.TestCase):
 
     def test_sem_data_e_sem_padrao(self):
         self.assertIsNone(extrair_data("sem data"))
+
+
+class TestAnoPlausivel(unittest.TestCase):
+    def test_ano_curto_do_seculo_passado(self):
+        """'98' e 1998: virar 2098 mandava o comprovante para uma pasta do futuro."""
+        self.assertEqual(extrair_datas("15/08/98"), [date(1998, 8, 15)])
+        self.assertEqual(extrair_datas("15/08/26"), [date(2026, 8, 15)])
+
+    def test_ano_impossivel_e_erro_de_leitura(self):
+        self.assertEqual(extrair_datas("12/03/202 e 12/03/1890 e 12/03/2099"), [])
+
+    def test_virada_do_seculo_acompanha_o_ano_atual(self):
+        with mock.patch.object(datas, "_ano_atual", return_value=2040):
+            self.assertEqual(extrair_datas("01/01/41"), [date(2041, 1, 1)])
+            self.assertEqual(extrair_datas("01/01/55"), [date(1955, 1, 1)])
+
+
+class TestOcrEVersao(unittest.TestCase):
+    def test_letra_no_lugar_de_digito(self):
+        self.assertEqual(extrair_datas("Vencimento 12/O3/2026 e 1l/03/2026"), [date(2026, 3, 12), date(2026, 3, 11)])
+
+    def test_palavra_nao_vira_data(self):
+        self.assertEqual(extrair_datas("lo/ol/oi"), [])
+
+    def test_numero_de_versao_nao_e_data(self):
+        self.assertEqual(extrair_datas("Modelo v1.2.26"), [])
+
+
+class TestDonoDaData(unittest.TestCase):
+    def test_nascimento_nao_conta_como_data_do_documento(self):
+        texto = "DATA DE NASCIMENTO 05/09/1995  DATA DE EXPEDICAO 10/07/2018"
+        self.assertEqual(data_do_documento(texto, "documento_pessoal")[0], "2018-07-10")
+
+    def test_leitura_anterior_nunca_e_a_data(self):
+        self.assertEqual(data_do_documento("COPEL Leitura anterior 10/02/2026", "conta_luz")[0], None)
+
+    def test_tabela_pareia_rotulo_e_valor_pela_ordem(self):
+        texto = "LEITURA ANTERIOR  LEITURA ATUAL  VENCIMENTO  TOTAL\n18/02/2026  19/03/2026  06/04/2026  R$ 10,00"
+        self.assertEqual(data_do_documento(texto, "conta_luz")[0], "2026-03-19")
+        self.assertEqual(data_do_documento(texto, "boleto")[0], "2026-04-06")
+
+
+class TestMesDeReferencia(unittest.TestCase):
+    def test_formatos_de_mes_e_ano(self):
+        for texto in ("Referencia MAR/2026", "Mes de referencia: 03/2026", "Competencia 03/26",
+                      "Periodo de apuracao: Marco/2026", "Referencia: marco de 2026"):
+            with self.subTest(texto=texto):
+                self.assertEqual(data_do_documento(texto, "conta_luz")[0], "2026-03-01")
+
+    def test_mes_e_ano_solto_nao_e_data(self):
+        """Sem rotulo de referencia, '03/26' pode ser qualquer numero."""
+        self.assertEqual(data_do_documento("Parcela 03/26 do financiamento", "contrato"), (None, mock.ANY))
+
+    def test_conta_mensal_prefere_a_referencia_ao_vencimento(self):
+        texto = "Referencia MAR/2026  Vencimento 06/04/2026"
+        data, como = data_do_documento(texto, "conta_luz")
+        self.assertEqual(data, "2026-03-01")
+        self.assertIn("mês de referência", como)
+        self.assertEqual(data_do_documento(texto, "boleto")[0], "2026-04-06")
+
+    def test_sem_referencia_vale_o_vencimento_escrito(self):
+        """Nada de 'vencimento menos um mes': ha conta que vence no proprio mes."""
+        self.assertEqual(data_do_documento("Vencimento 12/03/2026", "conta_luz")[0], "2026-03-12")
+
+
+class TestSemData(unittest.TestCase):
+    def test_sem_data_nao_inventa(self):
+        data, como = data_do_documento("CONTRATO DE LOCACAO sem data nenhuma", "contrato")
+        self.assertIsNone(data)
+        self.assertIn("sem-data", como)
+
+    def test_categoria_desconhecida_usa_a_ordem_geral(self):
+        self.assertEqual(data_do_documento("Emissao 01/02/2026 Vencimento 10/02/2026")[0], "2026-02-10")
+
+    def test_cai_na_primeira_data_solta(self):
+        data, como = data_do_documento("Pix enviado 04/04/2026", "comprovante")
+        self.assertEqual(data, "2026-04-04")
+        self.assertIn("sem rótulo", como)
 
 
 if __name__ == "__main__":

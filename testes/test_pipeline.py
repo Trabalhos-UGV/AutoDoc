@@ -181,9 +181,11 @@ class TestExplicacao(BasePipeline):
     def test_guarda_a_origem_do_texto(self):
         self.assertEqual(self.ficha.origem, "arquivo de texto")
 
-    def test_a_data_vem_do_rotulo_de_vencimento(self):
+    def test_mostra_o_vencimento_e_arquiva_pelo_mes_de_referencia(self):
+        """A tela mostra a data escrita (vencimento); a pasta é a do mês da conta."""
         self.assertEqual(self.ficha.data_documento, "2026-03-12")
-        self.assertIn("vencimento", self.ficha.etapas[3]["detalhe"])
+        self.assertEqual(self.ficha.data_pasta, "2026-03-01")
+        self.assertIn("mês de referência", self.ficha.etapas[3]["detalhe"])
 
 
 class TestCorrecaoManual(BasePipeline):

@@ -20,7 +20,7 @@ from pathlib import Path
 from .catalogo import PASTA_DUPLICADOS, PASTA_REVISAO, Catalogo, Ficha
 from .classificador import NAO_CLASSIFICADO, ROTULOS, Classificacao, classificar
 from .config import Config
-from .datas import data_de_modificacao, extrair_data_rotulada, extrair_datas
+from .datas import data_do_documento, extrair_data
 from .extrator import ExtracaoIndisponivel, extrair_com_origem, hash_arquivo
 
 logger = logging.getLogger(__name__)
@@ -131,10 +131,11 @@ class Pipeline:
             ),
         })
 
-        data, detalhe_data = self._resolver_data(texto, caminho)
+        data_pasta, detalhe_data = self._resolver_data(texto, classificacao.categoria)
+        data = extrair_data(texto) or data_pasta
         etapas.append({"titulo": "Data", "detalhe": detalhe_data})
 
-        destino = self._arquivar(caminho, classificacao, data)
+        destino = self._arquivar(caminho, classificacao, data_pasta)
         relativo = self._relativo(destino)
         etapas.append({
             "titulo": "Arquivamento",
@@ -146,6 +147,7 @@ class Pipeline:
             caminho=self.catalogo.relativo(destino),
             categoria=classificacao.categoria,
             data_documento=data,
+            data_pasta=data_pasta,
             texto=texto,
             hash=assinatura,
             confianca=classificacao.confianca,
@@ -186,7 +188,8 @@ class Pipeline:
         origem = self.catalogo.caminho_de(ficha)
         destino_pasta = self._pasta_destino(
             Classificacao(categoria=categoria, confianca=1.0, regra=""),
-            ficha.data_documento,
+            # Ficha de versao antiga nao tem `data_pasta`: a pasta era pela data.
+            ficha.data_pasta or ficha.data_documento,
         )
         destino_pasta.mkdir(parents=True, exist_ok=True)
         destino = self._nome_livre(destino_pasta / origem.name)
@@ -227,13 +230,14 @@ class Pipeline:
             texto, origem = "", f"nao foi possivel ler: {erro}"
 
         classificacao = classificar(texto)
-        data, detalhe_data = self._resolver_data(texto, caminho)
+        data_pasta, detalhe_data = self._resolver_data(texto, classificacao.categoria)
 
         return Ficha(
             arquivo=caminho.name,
             caminho=self.catalogo.relativo(caminho),
             categoria=classificacao.categoria,
-            data_documento=data,
+            data_documento=extrair_data(texto) or data_pasta,
+            data_pasta=data_pasta,
             texto=texto,
             hash=hash_arquivo(caminho),
             confianca=classificacao.confianca,
@@ -253,20 +257,15 @@ class Pipeline:
         )
 
     @staticmethod
-    def _resolver_data(texto: str, caminho: Path) -> tuple[str | None, str]:
-        """A data do documento e a explicacao de como ela foi escolhida."""
-        rotulada = extrair_data_rotulada(texto)
-        if rotulada:
-            data, rotulo = rotulada
-            return data, f'rótulo "{rotulo}" no texto → {data}'
+    def _resolver_data(texto: str, categoria: str) -> tuple[str | None, str]:
+        """A data do documento e a explicacao de como ela foi escolhida.
 
-        soltas = extrair_datas(texto)
-        if soltas:
-            data = soltas[0].isoformat()
-            return data, f"primeira data encontrada no texto → {data}"
-
-        data = data_de_modificacao(caminho).isoformat()
-        return data, f"nenhuma data no texto; usando a modificação do arquivo → {data}"
+        Qual data vale depende do tipo (ver `datas.data_do_documento`). Sem data
+        no texto, nao ha data: o documento vai para `sem-data/`. Usar a data de
+        modificacao do arquivo, como antes, arquivava um PDF baixado hoje no mes
+        de hoje — e ninguem o achava no mes a que ele pertence.
+        """
+        return data_do_documento(texto, categoria)
 
     def _pasta_destino(self, classificacao: Classificacao, data: str | None) -> Path:
         """Onde o arquivo vai parar.
