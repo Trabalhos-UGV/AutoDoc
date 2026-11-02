@@ -37,7 +37,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
-from .classificador import normalizar
+from .classificador import normalizar, tolerante
 
 MESES = {
     "janeiro": 1, "fevereiro": 2, "marco": 3, "abril": 4,
@@ -58,9 +58,17 @@ PADRAO_EXTENSO = re.compile(
 # Mes e ano, sem dia. So vale ao lado de um rotulo de referencia: solto, "03/26"
 # pode ser qualquer numero.
 PADRAO_MES_ANO = re.compile(rf"{_ANTES}(\d{{1,2}})[/.-](\d{{4}}|\d{{2}}){_DEPOIS}")
+# O nome do mes tolera as trocas do OCR: "MAl/2026" e maio.
+_NOMES_DE_MES = sorted([*MESES, *MESES_CURTOS], key=len, reverse=True)
 PADRAO_MES_ANO_NOME = re.compile(
-    rf"\b({'|'.join([*MESES, *MESES_CURTOS])})\b\.?\s*(?:/|-|de)?\s*(\d{{4}}|\d{{2}})\b"
+    rf"\b({'|'.join(tolerante(nome) for nome in _NOMES_DE_MES)})\b\.?\s*(?:/|-|de)?\s*(\d{{4}}|\d{{2}})\b"
 )
+
+
+def _mes_pelo_nome(lido: str) -> int:
+    """O numero do mes de um nome lido, com as trocas do OCR desfeitas."""
+    nome = next(n for n in _NOMES_DE_MES if re.fullmatch(tolerante(n), lido))
+    return MESES.get(nome) or MESES_CURTOS[nome]
 
 # Na zona de uma data o OCR troca zero por "o" e um por "l" ou "i".
 _PARECE_DATA_DE_OCR = re.compile(r"(?<![a-z0-9])[0-9oil]{1,2}[/.-][0-9oil]{1,2}[/.-][0-9oil]{2,4}(?![a-z0-9])")
@@ -70,6 +78,7 @@ _CORRECAO_OCR = str.maketrans({"o": "0", "i": "1", "l": "1"})
 # rotulo indica e tira-la do jogo: nascimento, validade, leitura anterior.
 ROTULOS_POR_TIPO: dict[str, str] = {
     "mes/ano de referencia": "referencia",
+    "mes/ano": "referencia",
     "mes de referencia": "referencia",
     "periodo de referencia": "referencia",
     "periodo de apuracao": "referencia",
@@ -110,11 +119,16 @@ ROTULOS_POR_TIPO: dict[str, str] = {
 # Rotulos que aceitam mes/ano sem dia.
 TIPOS_COM_MES_ANO = {"referencia", "fechamento"}
 
+# Os rotulos tambem toleram as trocas do OCR: "Fechament0", "VENClMENTO".
+_ROTULOS_POR_TAMANHO = sorted(ROTULOS_POR_TIPO, key=len, reverse=True)
 _PADRAO_ROTULO = re.compile(
-    r"(?<![a-z0-9])("
-    + "|".join(re.escape(r) for r in sorted(ROTULOS_POR_TIPO, key=len, reverse=True))
-    + r")(?![a-z0-9])"
+    r"(?<![a-z0-9])(" + "|".join(tolerante(r) for r in _ROTULOS_POR_TAMANHO) + r")(?![a-z0-9])"
 )
+
+
+def _rotulo_lido(lido: str) -> str:
+    """O rotulo canonico de um trecho lido, com as trocas do OCR desfeitas."""
+    return next(r for r in _ROTULOS_POR_TAMANHO if re.fullmatch(tolerante(r), lido))
 
 # Distancia maxima, em caracteres, entre o fim do rotulo e o inicio da data.
 # Cabe "VENCIMENTO                       12/03/2026" sem alcancar a linha
@@ -217,14 +231,13 @@ def _achar_datas(normalizado: str) -> list[Achado]:
             achados.append(Achado(casamento.start(), data, mes_ano=True))
     for casamento in PADRAO_MES_ANO_NOME.finditer(normalizado):
         nome, ano = casamento.groups()
-        mes = MESES.get(nome) or MESES_CURTOS[nome]
-        if (data := _montar(1, mes, int(ano))):
+        if (data := _montar(1, _mes_pelo_nome(nome), int(ano))):
             achados.append(Achado(casamento.start(), data, mes_ano=True))
     return sorted(achados, key=lambda achado: achado.inicio)
 
 
 def _achar_rotulos(normalizado: str) -> list[tuple[int, int, str]]:
-    return [(c.start(), c.end(), c.group(1)) for c in _PADRAO_ROTULO.finditer(normalizado)]
+    return [(c.start(), c.end(), _rotulo_lido(c.group(1))) for c in _PADRAO_ROTULO.finditer(normalizado)]
 
 
 def _parear_tabela(normalizado: str, rotulos, achados) -> None:
