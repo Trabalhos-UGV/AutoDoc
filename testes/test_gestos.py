@@ -1021,6 +1021,11 @@ class TestQuadro(ComCameraFalsa):
 
 
 class TestComando(unittest.TestCase):
+    def setUp(self):
+        # `main()` liga o registro; num teste ele gravaria no arquivo de
+        # registro de quem roda a suite.
+        self.enterContext(mock.patch.object(main.registro, "configurar"))
+
     def test_gestos_nao_cria_pasta(self):
         with (
             mock.patch.object(main.camera_gestos, "executar", return_value=0) as executar,

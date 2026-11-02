@@ -40,6 +40,11 @@ def configurar(pasta: Path | None = None) -> Path | None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     caminho = (pasta or pasta_de_registro()) / NOME_ARQUIVO
+    raiz = logging.getLogger()
+    # Chamado duas vezes no mesmo processo (o instalador sobe o app dentro
+    # dele), um segundo manipulador escreveria cada linha em dobro.
+    if any(getattr(m, "baseFilename", None) == str(caminho.absolute()) for m in raiz.handlers):
+        return caminho
     try:
         caminho.parent.mkdir(parents=True, exist_ok=True)
         arquivo = RotatingFileHandler(caminho, maxBytes=TAMANHO_MAXIMO,
@@ -49,5 +54,5 @@ def configurar(pasta: Path | None = None) -> Path | None:
         return None
 
     arquivo.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    logging.getLogger().addHandler(arquivo)
+    raiz.addHandler(arquivo)
     return caminho

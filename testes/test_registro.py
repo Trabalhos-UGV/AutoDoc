@@ -59,6 +59,14 @@ class TestConfigurar(unittest.TestCase):
         self.assertEqual(caminho, self.pasta / "logs" / "autodoc.log")
         self.assertIn("conta.pdf", caminho.read_text(encoding="utf-8"))
 
+    def test_chamar_duas_vezes_nao_duplica_as_linhas(self):
+        caminho = registro.configurar(self.pasta)
+        registro.configurar(self.pasta)
+        logging.getLogger("autodoc").warning("uma vez so")
+        for manipulador in logging.getLogger().handlers:
+            manipulador.flush()
+        self.assertEqual(caminho.read_text(encoding="utf-8").count("uma vez so"), 1)
+
     def test_sem_onde_gravar_o_programa_abre_mesmo_assim(self):
         bloqueio = self.pasta / "arquivo"
         bloqueio.write_text("x", encoding="utf-8")
