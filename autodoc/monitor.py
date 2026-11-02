@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+from .catalogo import PASTA_AGUARDANDO_OCR
+from .extrator import diagnostico_ocr
 from .pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
@@ -131,6 +133,17 @@ def arquivos_da_entrada(pasta: Path, saida: Path) -> list[Path]:
     return achados
 
 
+def aguardando_ocr(pipeline: Pipeline) -> list[Path]:
+    """O que esperava o OCR, se o OCR agora existe — senao, nada."""
+    pasta = pipeline.config.pasta_saida / PASTA_AGUARDANDO_OCR
+    if not pasta.is_dir():
+        return []
+    arquivos = [c for c in sorted(pasta.iterdir()) if c.is_file() and not deve_ignorar(c)]
+    if not arquivos or not diagnostico_ocr()["disponivel"]:
+        return []
+    return arquivos
+
+
 def processar_pendentes(pipeline: Pipeline, ao_processar=None) -> int:
     """Processa o que ja estava na pasta antes do monitor subir.
 
@@ -144,7 +157,8 @@ def processar_pendentes(pipeline: Pipeline, ao_processar=None) -> int:
         return 0
 
     total = 0
-    for caminho in arquivos_da_entrada(pasta, pipeline.config.pasta_saida):
+    pendentes = arquivos_da_entrada(pasta, pipeline.config.pasta_saida) + aguardando_ocr(pipeline)
+    for caminho in pendentes:
         # Um arquivo ainda sendo copiado quando o programa abre tem que ser
         # esperado aqui tambem, e nao so no caminho do watchdog.
         if not aguardar_arquivo_pronto(caminho):

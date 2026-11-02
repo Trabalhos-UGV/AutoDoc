@@ -438,6 +438,37 @@ class TestVarredura(BaseComPasta):
         vigia.join()
 
 
+class TestAguardandoOcr(BaseComPasta):
+    """A foto que esperava o OCR volta sozinha quando ele passa a existir."""
+
+    def esperando(self) -> Path:
+        pasta = self.config.pasta_saida / "_Aguardando_OCR"
+        pasta.mkdir(parents=True, exist_ok=True)
+        alvo = pasta / "conta.txt"
+        alvo.write_text((EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8"),
+                        encoding="utf-8")
+        return alvo
+
+    def test_com_ocr_volta_ao_pipeline(self):
+        alvo = self.esperando()
+        with mock.patch.object(monitor, "diagnostico_ocr", return_value={"disponivel": True}):
+            self.assertEqual(processar_pendentes(self.pipeline), 1)
+        self.assertFalse(alvo.exists())
+
+    def test_sem_ocr_continua_esperando(self):
+        alvo = self.esperando()
+        with mock.patch.object(monitor, "diagnostico_ocr", return_value={"disponivel": False}):
+            self.assertEqual(processar_pendentes(self.pipeline), 0)
+        self.assertTrue(alvo.exists())
+
+    def test_sem_nada_esperando_nem_pergunta_pelo_ocr(self):
+        """O diagnóstico roda o Tesseract; a cada 30 s, só se houver motivo."""
+        (self.config.pasta_saida / "_Aguardando_OCR").mkdir(parents=True)
+        with mock.patch.object(monitor, "diagnostico_ocr") as perguntou:
+            self.assertEqual(monitor.aguardando_ocr(self.pipeline), [])
+        perguntou.assert_not_called()
+
+
 class TestWatchdogAusente(BaseComPasta):
     def test_sem_watchdog_explica_o_que_instalar(self):
         """É a única dependência sem a qual o AutoDoc não tem como funcionar."""

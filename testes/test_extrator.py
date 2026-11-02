@@ -397,6 +397,74 @@ class TestFormatosDeFoto(BaseArquivos):
         self.assertIn("pillow-heif", str(erro.exception))
 
 
+class TestDiagnosticoDoOcr(unittest.TestCase):
+    """Antes, a falta do OCR so aparecia como foto atras de foto na revisao."""
+
+    def com_idiomas(self, idiomas):
+        import pytesseract
+        return mock.patch.object(pytesseract, "get_languages", return_value=idiomas)
+
+    def test_pronto_em_portugues(self):
+        with self.com_idiomas(["eng", "por", "osd"]):
+            diagnostico = extrator.diagnostico_ocr()
+        self.assertTrue(diagnostico["portugues"])
+        self.assertEqual(diagnostico["como_instalar"], "")
+
+    def test_sem_pacote_de_portugues_diz_como_resolver(self):
+        with self.com_idiomas(["eng", "osd"]):
+            diagnostico = extrator.diagnostico_ocr()
+        self.assertTrue(diagnostico["disponivel"])
+        self.assertFalse(diagnostico["portugues"])
+        self.assertIn("inglês", diagnostico["resumo"])
+        self.assertTrue(diagnostico["como_instalar"])
+
+    def test_sem_tesseract_diz_como_instalar(self):
+        import pytesseract
+        with mock.patch.object(pytesseract, "get_languages",
+                               side_effect=pytesseract.TesseractNotFoundError()):
+            diagnostico = extrator.diagnostico_ocr()
+        self.assertFalse(diagnostico["disponivel"])
+        self.assertIn("não instalado", diagnostico["resumo"])
+
+    def test_o_comando_e_o_deste_sistema(self):
+        for plataforma, trecho in (("darwin", "brew"), ("linux", "apt"),
+                                   ("win32", "UB Mannheim"), ("freebsd14", "apt")):
+            with self.subTest(sistema=plataforma), \
+                 mock.patch.object(extrator.sys, "platform", plataforma):
+                self.assertIn(trecho, extrator.como_instalar_ocr())
+
+
+class TestTesseractNoWindows(BaseArquivos):
+    """O instalador do Windows nao poe o Tesseract no PATH."""
+
+    def setUp(self):
+        super().setUp()
+        import pytesseract
+        self.pytesseract = pytesseract
+        original = pytesseract.pytesseract.tesseract_cmd
+        self.addCleanup(setattr, pytesseract.pytesseract, "tesseract_cmd", original)
+
+    def achar(self, pastas, plataforma="win32", no_path=None):
+        with mock.patch.object(extrator.sys, "platform", plataforma), \
+             mock.patch.object(extrator.shutil, "which", return_value=no_path), \
+             mock.patch.object(extrator, "PASTAS_TESSERACT_WINDOWS", pastas):
+            extrator._achar_tesseract_no_windows(self.pytesseract)
+        return self.pytesseract.pytesseract.tesseract_cmd
+
+    def test_acha_na_pasta_de_programas(self):
+        instalado = self.pasta / "Tesseract-OCR"
+        instalado.mkdir()
+        (instalado / "tesseract.exe").touch()
+        self.assertEqual(self.achar((self.pasta / "nada", instalado)),
+                         str(instalado / "tesseract.exe"))
+
+    def test_no_path_ou_fora_do_windows_nao_mexe(self):
+        antes = self.pytesseract.pytesseract.tesseract_cmd
+        self.assertEqual(self.achar((self.pasta,), no_path="C:/tesseract.exe"), antes)
+        self.assertEqual(self.achar((self.pasta,), plataforma="darwin"), antes)
+        self.assertEqual(self.achar((self.pasta / "nada",)), antes)
+
+
 class TestErroDoSistemaDeArquivos(BaseArquivos):
     def test_erro_de_leitura_do_pdf_sobe_como_oserror(self):
         """Sem permissão não é "PDF ilegível": o pipeline trata os dois, mas o

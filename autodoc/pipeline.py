@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .catalogo import (
+    PASTA_AGUARDANDO_OCR,
     PASTA_DUPLICADOS,
     PASTA_NAO_SUPORTADOS,
     PASTA_REVISAO,
@@ -28,7 +29,12 @@ from .catalogo import (
 from .classificador import NAO_CLASSIFICADO, ROTULOS, Classificacao, classificar
 from .config import Config
 from .datas import data_do_documento, extrair_data
-from .extrator import ExtracaoIndisponivel, extrair_com_origem, hash_arquivo
+from .extrator import (
+    ExtracaoIndisponivel,
+    OcrIndisponivel,
+    extrair_com_origem,
+    hash_arquivo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +133,8 @@ class Pipeline:
         ilegivel: str | None = None
         try:
             texto, origem = extrair_com_origem(caminho)
+        except OcrIndisponivel as erro:
+            return self._esperar_ocr(caminho, erro)
         except (ExtracaoIndisponivel, OSError) as erro:
             logger.warning("nao foi possivel ler %s: %s", caminho.name, erro)
             texto, origem, ilegivel = "", "não foi possível ler o arquivo", str(erro)
@@ -309,6 +317,20 @@ class Pipeline:
             return self.config.pasta_saida / classificacao.categoria / ano / mes
 
         return self.config.pasta_saida / classificacao.categoria / "sem-data"
+
+    def _esperar_ocr(self, caminho: Path, erro: OcrIndisponivel) -> Resultado:
+        """Foto ou scan sem OCR na maquina: espera, em vez de ir para revisao.
+
+        Na revisao ela ficava como "ilegivel" para sempre, mesmo depois de o
+        Tesseract ser instalado. Em `_Aguardando_OCR/` a varredura a devolve ao
+        pipeline assim que o OCR passar a existir.
+        """
+        logger.warning("%s espera o OCR: %s", caminho.name, erro)
+        if caminho.parent.name == PASTA_AGUARDANDO_OCR:
+            # Ja estava esperando; mover para o mesmo lugar so o renomearia.
+            return Resultado(caminho, ignorado="aguardando OCR", destino=caminho)
+        destino = self._recolher(caminho, PASTA_AGUARDANDO_OCR)
+        return Resultado(caminho, ignorado="aguardando OCR", destino=destino)
 
     def _recolher(self, caminho: Path, nome_pasta: str) -> Path | None:
         """Tira o arquivo da pasta de entrada, sem arquiva-lo de fato."""

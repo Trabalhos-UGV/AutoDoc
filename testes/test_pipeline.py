@@ -10,10 +10,16 @@ from unittest import mock
 from pathlib import Path
 
 from autodoc import pipeline as pipeline_modulo
-from autodoc.catalogo import PASTA_DUPLICADOS, PASTA_NAO_SUPORTADOS, PASTA_REVISAO, Catalogo
+from autodoc.catalogo import (
+    PASTA_AGUARDANDO_OCR,
+    PASTA_DUPLICADOS,
+    PASTA_NAO_SUPORTADOS,
+    PASTA_REVISAO,
+    Catalogo,
+)
 from autodoc.classificador import NAO_CLASSIFICADO
 from autodoc.config import Config
-from autodoc.extrator import ExtracaoIndisponivel
+from autodoc.extrator import ExtracaoIndisponivel, OcrIndisponivel
 from autodoc.pipeline import Pipeline
 
 EXEMPLOS = Path(__file__).resolve().parent.parent / "exemplos"
@@ -371,6 +377,40 @@ class TestFalhasAoMover(BasePipeline):
 
         # a ficha acompanha a decisão mesmo sem o arquivo
         self.assertEqual(corrigida.categoria, "contrato")
+
+
+class TestSemOcr(BasePipeline):
+    """Foto boa numa maquina sem Tesseract: espera o OCR, nao vai para a revisao."""
+
+    def processar_sem_ocr(self, alvo):
+        with mock.patch.object(pipeline_modulo, "extrair_com_origem",
+                               side_effect=OcrIndisponivel("Tesseract nao esta instalado")), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            return self.pipeline.processar(alvo)
+
+    def test_vai_para_a_pasta_de_espera_sem_ficha(self):
+        resultado = self.processar_sem_ocr(self.largar_exemplo("conta_energia_marco.txt"))
+
+        self.assertFalse(resultado.sucesso)
+        self.assertEqual(resultado.ignorado, "aguardando OCR")
+        self.assertEqual(resultado.destino.parent.name, PASTA_AGUARDANDO_OCR)
+        self.assertTrue(self.entrada_vazia)
+        self.assertEqual(len(self.catalogo), 0)
+
+    def test_quem_ja_esperava_nao_e_renomeado(self):
+        primeiro = self.processar_sem_ocr(self.largar_exemplo("conta_energia_marco.txt"))
+        de_novo = self.processar_sem_ocr(primeiro.destino)
+
+        self.assertEqual(de_novo.destino, primeiro.destino)
+        self.assertTrue(primeiro.destino.exists())
+
+    def test_com_ocr_sai_da_espera_e_e_arquivado(self):
+        esperando = self.processar_sem_ocr(self.largar_exemplo("conta_energia_marco.txt")).destino
+        resultado = self.pipeline.processar(esperando)
+
+        self.assertTrue(resultado.sucesso)
+        self.assertEqual(resultado.categoria, "conta_luz")
+        self.assertFalse(esperando.exists())
 
 
 class TestDocumentoIlegivel(BasePipeline):

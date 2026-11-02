@@ -15,6 +15,9 @@ pdf2image, que exigiriam instalar programa externo alem do Tesseract.
 from __future__ import annotations
 
 import hashlib
+import os
+import shutil
+import sys
 from pathlib import Path
 
 EXTENSOES_IMAGEM = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".heic", ".heif"}
@@ -43,6 +46,22 @@ MINIMO_TEXTO_PAGINA = 40
 # miniatura de scanner leem lixo abaixo disso.
 LADO_MINIMO_OCR = 1200
 AMPLIACAO_MAXIMA = 4
+
+
+# O instalador do Tesseract no Windows nao o poe no PATH: sem procurar aqui, o
+# OCR ficava desligado numa maquina em que ele esta instalado.
+PASTAS_TESSERACT_WINDOWS = (
+    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Tesseract-OCR",
+    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Tesseract-OCR",
+    Path(os.environ.get("LOCALAPPDATA", r"C:\Users\Default\AppData\Local"))
+    / "Programs" / "Tesseract-OCR",
+)
+
+COMO_INSTALAR_OCR = {
+    "darwin": "brew install tesseract tesseract-lang",
+    "win": "instale o Tesseract (UB Mannheim) marcando o idioma Portuguese",
+    "linux": "sudo apt install tesseract-ocr tesseract-ocr-por",
+}
 
 
 class ExtracaoIndisponivel(RuntimeError):
@@ -105,7 +124,54 @@ def _motor_ocr():
         register_heif_opener()
     except ImportError:
         pass  # sem ele, so a foto HEIC deixa de abrir
+    _achar_tesseract_no_windows(pytesseract)
     return pytesseract, Image
+
+
+def _achar_tesseract_no_windows(pytesseract) -> None:
+    if not sys.platform.startswith("win") or shutil.which("tesseract"):
+        return
+    for pasta in PASTAS_TESSERACT_WINDOWS:
+        executavel = pasta / "tesseract.exe"
+        if executavel.is_file():
+            pytesseract.pytesseract.tesseract_cmd = str(executavel)
+            return
+
+
+def como_instalar_ocr() -> str:
+    """O comando que poe o OCR em portugues neste sistema."""
+    for prefixo, comando in COMO_INSTALAR_OCR.items():
+        if sys.platform.startswith(prefixo):
+            return comando
+    return COMO_INSTALAR_OCR["linux"]
+
+
+def diagnostico_ocr() -> dict:
+    """O OCR desta maquina: existe, le portugues e, se nao, como resolver.
+
+    Antes a falta do Tesseract so aparecia como foto atras de foto indo para a
+    revisao, e a falta do pacote de portugues nao aparecia em lugar nenhum — o
+    OCR lia em ingles calado, perdendo "ç" e "ã" de "Prestação" e "Emissão".
+    """
+    try:
+        pytesseract, _ = _motor_ocr()
+        idiomas = set(pytesseract.get_languages(config=""))
+    except Exception:  # OcrIndisponivel, ou o Tesseract que nao responde
+        return {
+            "disponivel": False,
+            "portugues": False,
+            "resumo": "não instalado — fotos e scans esperam o OCR",
+            "como_instalar": como_instalar_ocr(),
+        }
+    if IDIOMA_OCR not in idiomas:
+        return {
+            "disponivel": True,
+            "portugues": False,
+            "resumo": "sem o pacote de português — lendo em inglês",
+            "como_instalar": como_instalar_ocr(),
+        }
+    return {"disponivel": True, "portugues": True, "resumo": "pronto, em português",
+            "como_instalar": ""}
 
 
 def preparar_para_ocr(imagem):
