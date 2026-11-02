@@ -92,6 +92,22 @@ class TestGravacao(BaseCatalogo):
         self.assertEqual(len(guardada.texto), LIMITE_TEXTO)
 
 
+class TestDiarioDeMovimentos(BaseCatalogo):
+    def test_cada_movimento_vira_uma_linha(self):
+        self.catalogo.registrar_movimento(Path("/entrada/a.pdf"), Path("/saida/boleto/a.pdf"))
+        self.catalogo.registrar_movimento(Path("/entrada/b.png"), Path("/saida/imagens/b.png"))
+
+        linhas = [json.loads(l) for l in self.catalogo.movimentos.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(l["origem"], l["destino"]) for l in linhas],
+                         [("/entrada/a.pdf", "/saida/boleto/a.pdf"), ("/entrada/b.png", "/saida/imagens/b.png")])
+        self.assertIn("T", linhas[0]["hora"])
+
+    def test_falha_ao_anotar_so_avisa(self):
+        self.catalogo.movimentos.mkdir()  # no lugar do arquivo, uma pasta: abrir falha
+        with self.assertLogs("autodoc.catalogo", "WARNING"):
+            self.catalogo.registrar_movimento(Path("/entrada/a.pdf"), Path("/saida/a.pdf"))
+
+
 class TestAtualizacao(BaseCatalogo):
     def test_ficha_alterada_nao_deixa_a_versao_antiga(self):
         self.catalogo.inserir(ficha(categoria="nao_classificado", assinatura="h"))

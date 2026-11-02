@@ -21,7 +21,6 @@ from pathlib import Path
 from .catalogo import (
     PASTA_AGUARDANDO_OCR,
     PASTA_DUPLICADOS,
-    PASTA_NAO_SUPORTADOS,
     PASTA_REVISAO,
     Catalogo,
     Ficha,
@@ -158,11 +157,11 @@ class Pipeline:
 
     def _processar(self, caminho: Path) -> Resultado:
         if caminho.suffix.lower() not in self.config.extensoes:
-            # Deixado na entrada, um .docx ficava ali para sempre e quem o
-            # largou achava que o AutoDoc tinha travado. Sai, para uma pasta
-            # que diz o motivo, e a tela conta quantos estao la.
-            destino = self._recolher(caminho, PASTA_NAO_SUPORTADOS)
-            return Resultado(caminho, ignorado="formato nao suportado", destino=destino)
+            # Fica onde esta. Antes ia para `_Nao_suportados/`, e com a pasta
+            # vigiada sendo a de Downloads isso levou `.dmg`, `.zip` e o
+            # conteudo de tres aplicativos embora. O que o AutoDoc nao le nao e
+            # documento, e nao cabe a ele tirar do lugar.
+            return Resultado(caminho, ignorado="formato nao suportado")
 
         try:
             assinatura = hash_arquivo(caminho)
@@ -299,6 +298,7 @@ class Pipeline:
 
         if origem.exists():
             shutil.move(str(origem), destino)
+            self.catalogo.registrar_movimento(origem, destino)
         else:
             logger.warning("arquivo de %s sumiu antes da correcao", ficha.arquivo)
 
@@ -416,6 +416,7 @@ class Pipeline:
             pasta.mkdir(parents=True, exist_ok=True)
             destino = self._nome_livre(pasta / caminho.name)
             shutil.move(str(caminho), destino)
+            self.catalogo.registrar_movimento(caminho, destino)
             return destino
         except OSError as erro:
             logger.warning("nao foi possivel mover %s: %s", caminho.name, erro)
@@ -437,6 +438,7 @@ class Pipeline:
             if caminho.exists() and destino.exists():
                 destino.unlink()
             raise
+        self.catalogo.registrar_movimento(caminho, destino)
         return destino
 
     def _relativo(self, destino: Path) -> str:

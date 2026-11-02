@@ -35,6 +35,10 @@ logger = logging.getLogger(__name__)
 # descreve: levar a pasta organizada para outra maquina leva o catalogo junto.
 PASTA_CATALOGO = ".autodoc"
 NOME_CATALOGO = "catalogo.jsonl"
+# Todo arquivo que o AutoDoc tirou de um lugar, com de onde e para onde. A ficha
+# so guarda onde o documento esta; sem este diario, desfazer um estrago exigiu
+# reconstruir a origem de 819 arquivos pela ordem em que foram movidos.
+NOME_MOVIMENTOS = "movimentos.jsonl"
 
 # Pastas com nome proprio dentro da saida. Ficam aqui, e nao no pipeline,
 # porque quem le a pasta organizada de volta e este modulo — ele precisa
@@ -105,6 +109,7 @@ class Catalogo:
         self.pasta_saida = Path(pasta_saida)
         self.pasta = self.pasta_saida / PASTA_CATALOGO
         self.arquivo = self.pasta / NOME_CATALOGO
+        self.movimentos = self.pasta / NOME_MOVIMENTOS
 
         self._fichas: dict[int, Ficha] = {}
         self._hashes: set[str] = set()
@@ -183,6 +188,23 @@ class Catalogo:
         with self.arquivo.open("a", encoding="utf-8") as caderno:
             caderno.write(ficha.para_json() + "\n")
             caderno.flush()
+
+    def registrar_movimento(self, origem: Path, destino: Path) -> None:
+        """Anota no diario que `origem` virou `destino`. Falhar so avisa.
+
+        Uma linha por movimento, so acrescentada — como o catalogo. Perder a
+        anotacao nao pode impedir o documento de ser arquivado.
+        """
+        linha = json.dumps({
+            "hora": datetime.now().isoformat(timespec="seconds"),
+            "origem": str(origem),
+            "destino": str(destino),
+        }, ensure_ascii=False)
+        try:
+            with self.movimentos.open("a", encoding="utf-8") as diario:
+                diario.write(linha + "\n")
+        except OSError as erro:
+            logger.warning("nao foi possivel anotar o movimento de %s: %s", origem.name, erro)
 
     def inserir(self, ficha: Ficha) -> int | None:
         """Fixa a ficha no catalogo. Devolve None se o documento ja estava la.

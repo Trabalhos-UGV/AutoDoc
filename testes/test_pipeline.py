@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import tempfile
@@ -100,19 +101,17 @@ class TestArquivamento(BasePipeline):
         self.assertEqual(segundo.destino.name, "conta_energia_marco (2).txt")
         self.assertTrue(primeiro.destino.exists(), "o primeiro nao pode ter sumido")
 
-    def test_formato_nao_suportado_sai_da_entrada_para_pasta_propria(self):
-        """Deixado na entrada, ficava la para sempre sem ninguem saber por que."""
+    def test_formato_nao_suportado_fica_onde_esta(self):
+        """Levado para `_Nao_suportados/`, ele esvaziou aplicativos de uma pasta de Downloads."""
         alvo = self.config.pasta_entrada / "planilha.xlsx"
         alvo.write_text("qualquer coisa", encoding="utf-8")
 
         resultado = self.pipeline.processar(alvo)
         self.assertFalse(resultado.sucesso)
         self.assertEqual(resultado.ignorado, "formato nao suportado")
-        self.assertFalse(alvo.exists())
-        self.assertEqual(resultado.destino,
-                         self.config.pasta_saida / PASTA_NAO_SUPORTADOS / "planilha.xlsx")
-        self.assertEqual(self.catalogo.arquivos_no_disco(), [],
-                         "o que nao foi lido nao e documento do arquivo")
+        self.assertTrue(alvo.exists())
+        self.assertIsNone(resultado.destino)
+        self.assertFalse((self.config.pasta_saida / PASTA_NAO_SUPORTADOS).exists())
 
 
 class TestTodosOsExemplos(BasePipeline):
@@ -224,6 +223,13 @@ class TestCorrecaoManual(BasePipeline):
         self.pipeline.reclassificar(self.ficha, "contrato")
         relido = Catalogo(self.config.pasta_saida)
         self.assertEqual(relido.por_id(1).categoria, "contrato")
+
+    def test_correcao_entra_no_diario(self):
+        antes = self.catalogo.caminho_de(self.ficha)
+        corrigida = self.pipeline.reclassificar(self.ficha, "contrato")
+        ultima = json.loads(self.catalogo.movimentos.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual((ultima["origem"], ultima["destino"]),
+                         (str(antes), str(self.catalogo.caminho_de(corrigida))))
 
     def test_categoria_inventada_e_recusada(self):
         with self.assertRaises(ValueError):
@@ -516,6 +522,32 @@ class TestAnalisar(BasePipeline):
 
         self.assertEqual(ficha.texto, "")
         self.assertIn("nao foi possivel ler", ficha.origem)
+
+
+class TestDiario(BasePipeline):
+    """Todo arquivo que sai do lugar deixa anotado de onde veio."""
+
+    def movimentos(self):
+        return [json.loads(l) for l in self.catalogo.movimentos.read_text(encoding="utf-8").splitlines()]
+
+    def test_arquivado(self):
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+        resultado = self.pipeline.processar(alvo)
+        self.assertEqual(self.movimentos(), [{**self.movimentos()[0],
+                                              "origem": str(alvo), "destino": str(resultado.destino)}])
+
+    def test_duplicado(self):
+        self.pipeline.processar(self.largar_exemplo("conta_energia_marco.txt"))
+        copia = self.largar_exemplo("conta_energia_marco.txt", "copia.txt")
+        resultado = self.pipeline.processar(copia)
+        self.assertEqual(self.movimentos()[-1]["origem"], str(copia))
+        self.assertEqual(self.movimentos()[-1]["destino"], str(resultado.destino))
+
+    def test_o_que_nao_sai_do_lugar_nao_e_anotado(self):
+        alvo = self.config.pasta_entrada / "instalador.dmg"
+        alvo.write_bytes(b"x")
+        self.pipeline.processar(alvo)
+        self.assertFalse(self.catalogo.movimentos.exists())
 
 
 class TestIdentificadoPeloTipo(BasePipeline):
