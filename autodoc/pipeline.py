@@ -298,6 +298,7 @@ class Pipeline:
 
         if origem.exists():
             shutil.move(str(origem), destino)
+            self.catalogo.registrar_movimento(origem, destino)
         else:
             logger.warning("arquivo de %s sumiu antes da correcao", ficha.arquivo)
 
@@ -415,6 +416,7 @@ class Pipeline:
             pasta.mkdir(parents=True, exist_ok=True)
             destino = self._nome_livre(pasta / caminho.name)
             shutil.move(str(caminho), destino)
+            self.catalogo.registrar_movimento(caminho, destino)
             return destino
         except OSError as erro:
             logger.warning("nao foi possivel mover %s: %s", caminho.name, erro)
@@ -436,6 +438,7 @@ class Pipeline:
             if caminho.exists() and destino.exists():
                 destino.unlink()
             raise
+        self.catalogo.registrar_movimento(caminho, destino)
         return destino
 
     def _relativo(self, destino: Path) -> str:
