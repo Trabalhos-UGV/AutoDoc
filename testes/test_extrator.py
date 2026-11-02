@@ -77,6 +77,21 @@ class TestTexto(BaseArquivos):
         self.assertIn("kWh", texto)
         self.assertEqual(origem, "arquivo de texto")
 
+    def test_utf16_do_excel(self):
+        alvo = self.pasta / "bom.csv"
+        alvo.write_bytes("Designator\tFootprint\nD1\tSOD-123".encode("utf-16"))
+        self.assertTrue(extrair_com_origem(alvo)[0].startswith("Designator\tFootprint"))
+
+    def test_utf8_com_bom(self):
+        alvo = self.pasta / "nota.txt"
+        alvo.write_bytes("\ufeffConta de água".encode("utf-8"))
+        self.assertEqual(extrair_com_origem(alvo)[0], "Conta de água")
+
+    def test_cp1252_do_bloco_de_notas_nao_perde_acento(self):
+        alvo = self.pasta / "nota.txt"
+        alvo.write_bytes("Conta de água — ação".encode("cp1252"))
+        self.assertEqual(extrair_com_origem(alvo)[0], "Conta de água — ação")
+
     def test_formato_nao_suportado(self):
         alvo = self.pasta / "planilha.xlsx"
         alvo.write_bytes(b"nada")
@@ -307,6 +322,17 @@ class TestPreparoDaImagem(unittest.TestCase):
         self.assertEqual(pronta.size, (1300, 1600))
         self.assertEqual(pronta.mode, "L")
 
+    def test_paleta_com_transparencia_nao_gera_aviso(self):
+        import warnings
+
+        from PIL import Image
+
+        icone = Image.new("P", (20, 20))
+        icone.info["transparency"] = b"\x00" * 256
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.assertEqual(extrator.preparar_para_ocr(icone).mode, "L")
+
     def test_imagem_pequena_e_ampliada_com_teto(self):
         from PIL import Image
 
@@ -337,6 +363,55 @@ class TestPreparoDaImagem(unittest.TestCase):
             extrair_paginas(paginas)
 
         self.assertEqual(ocr.call_count, extrator.PAGINAS_OCR)
+
+
+class TestSobreAImagem(BaseArquivos):
+    def test_tamanho_e_data_de_captura(self):
+        from PIL import Image
+
+        alvo = self.pasta / "foto.jpg"
+        exif = Image.Exif()
+        exif.get_ifd(0x8769)[36867] = "2025:12:24 18:30:00"
+        Image.new("RGB", (40, 30)).save(alvo, exif=exif)
+        self.assertEqual(extrator.sobre_a_imagem(alvo), ((40, 30), "2025-12-24"))
+
+    def test_data_do_bloco_principal(self):
+        from PIL import Image
+
+        alvo = self.pasta / "foto.jpg"
+        exif = Image.Exif()
+        exif[306] = "2024:01:02 10:00:00"
+        Image.new("RGB", (10, 10)).save(alvo, exif=exif)
+        self.assertEqual(extrator.sobre_a_imagem(alvo)[1], "2024-01-02")
+
+    def test_sem_exif_nao_ha_data(self):
+        from PIL import Image
+
+        alvo = self.pasta / "icone.png"
+        Image.new("RGBA", (16, 16)).save(alvo)
+        self.assertEqual(extrator.sobre_a_imagem(alvo), ((16, 16), None))
+
+    def test_data_zerada_da_camera_nao_vale(self):
+        from PIL import Image
+
+        alvo = self.pasta / "foto.jpg"
+        exif = Image.Exif()
+        exif[306] = "0000:00:00 00:00:00"
+        Image.new("RGB", (10, 10)).save(alvo, exif=exif)
+        self.assertEqual(extrator.sobre_a_imagem(alvo)[1], None)
+
+    def test_arquivo_que_nao_e_imagem(self):
+        alvo = self.pasta / "falsa.png"
+        alvo.write_bytes(b"nada")
+        self.assertEqual(extrator.sobre_a_imagem(alvo), (None, None))
+
+    def test_sem_pillow_heif_le_o_resto(self):
+        from PIL import Image
+
+        alvo = self.pasta / "icone.png"
+        Image.new("RGB", (8, 8)).save(alvo)
+        with mock.patch.dict(sys.modules, {"pillow_heif": None}):
+            self.assertEqual(extrator.sobre_a_imagem(alvo), ((8, 8), None))
 
 
 class TestOcrQueFalhaDeVez(BaseArquivos):
