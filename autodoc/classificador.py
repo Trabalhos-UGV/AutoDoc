@@ -15,9 +15,15 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from pathlib import Path
 
 CATEGORIA_PADRAO = "outros"
 NAO_CLASSIFICADO = "nao_classificado"
+
+# Identificados pelo tipo de arquivo, quando o conteudo nao e de documento
+# nenhum (ver `pipeline._pelo_tipo`): nao saem do classificador por palavra.
+IMAGENS = "imagens"
+TEXTOS = "textos"
 
 # Abaixo disto o documento vai para revisao manual.
 LIMIAR = 0.60
@@ -120,6 +126,47 @@ REGRAS: dict[str, dict[str, int]] = {
         "cnh": 4, "orgao expedidor": 4, "registro geral": 4,
         "filiacao": 4, "naturalidade": 4, "identidade": 3, "cpf": 1, "rg": 1,
     },
+    # O que nao e conta nem documento pessoal, mas chega do mesmo jeito: tudo o
+    # que se baixa vai parar na mesma pasta. Sem estas categorias, um
+    # certificado de curso ou uma apostila iam para a revisao com 0%.
+    "certificado": {
+        "certificamos": 5, "certificado de conclusao": 5, "certificado": 4,
+        "carga horaria": 4, "concluiu com exito": 4, "concluiu o curso": 4,
+        "conteudo programatico": 3, "participou": 2, "curso": 1,
+    },
+    "estudos": {
+        "exercicios em sala": 5, "lista de exercicios": 5, "atividade em grupo": 5,
+        "trabalho academico": 5, "apostila": 5, "plano de aula": 5,
+        "aula": 3, "disciplina": 3, "exercicio": 2, "exercicios": 2, "professor": 2,
+        # Fraco: tambem e "atividade economica" na nota fiscal.
+        "atividade": 2,
+    },
+    "manual_tecnico": {
+        "schematic": 5, "datasheet": 5, "manual de instrucoes": 5,
+        "manual do usuario": 5, "instrucoes de montagem": 5,
+        "assembly": 4, "pinout": 4, "esquema eletrico": 5,
+        "tools and requirements": 3, "designator": 3, "footprint": 3,
+        "montagem": 3, "3d printed": 3, "gpio": 2,
+    },
+    "licenca": {
+        "licensed under": 5, "creative commons": 5, "creativecommons": 5,
+        "mit license": 5, "gnu general public license": 5, "apache license": 5,
+        "permission is hereby granted": 5, "licenca de uso": 5,
+        "termos de uso": 4, "license": 3, "licenca": 3,
+    },
+    "informativo": {
+        "campanha de conscientizacao": 5, "cartilha": 5, "folheto": 4,
+        "conscientizacao": 3, "como se proteger": 3, "folder": 3,
+        # Fraco: contas trazem "mensagem informativa" no rodape.
+        "informativo": 1,
+    },
+    "documentacao": {
+        # O normalizador junta "LEIA-ME" em "leiame".
+        "leiame": 5, "readme": 5, "como instalar": 4, "como importar": 4,
+        "instalacao manual": 4, "instrucoes de instalacao": 4,
+        "use quando o usuario": 4, "como usar": 4, "pip install": 4, "npm install": 4,
+        "documentacao": 3, "skill": 3, "instalacao": 2,
+    },
 }
 
 # Pontuacao a partir da qual a evidencia ja e considerada suficiente. Nao e a
@@ -139,6 +186,12 @@ ALVOS: dict[str, int] = {
     "contrato": 12,
     "comprovante": 12,
     "documento_pessoal": 10,
+    "certificado": 9,
+    "estudos": 8,
+    "manual_tecnico": 8,
+    "licenca": 8,
+    "informativo": 8,
+    "documentacao": 8,
 }
 
 ROTULOS: dict[str, str] = {
@@ -154,6 +207,14 @@ ROTULOS: dict[str, str] = {
     "contrato": "Contrato",
     "comprovante": "Comprovante",
     "documento_pessoal": "Documento pessoal",
+    "certificado": "Certificado",
+    "estudos": "Estudos",
+    "manual_tecnico": "Manual técnico",
+    "licenca": "Licença",
+    "informativo": "Informativo",
+    "documentacao": "Documentação",
+    IMAGENS: "Imagem",
+    TEXTOS: "Arquivo de texto",
     CATEGORIA_PADRAO: "Outros",
     NAO_CLASSIFICADO: "Não classificado",
 }
@@ -306,8 +367,23 @@ def _tem_termo_forte(categoria: str, normalizado: str) -> bool:
     return any(peso >= PESO_FORTE and _encontrar(termo, normalizado) for termo, peso in REGRAS[categoria].items())
 
 
-def classificar(texto: str) -> Classificacao:
-    """Classifica o documento e explica a decisao."""
+def com_nome(texto: str, nome: str) -> str:
+    """O texto precedido do nome do arquivo, em palavras.
+
+    "certificado-3497633.pdf", "Folder LGPD", "License.txt": quem salva o
+    arquivo ja disse o que ele e, e esse sinal era jogado fora. `_`, `-` e `.`
+    viram espaco para o nome casar com os termos como palavra.
+    """
+    palavras = re.sub(r"[_\-.]+", " ", Path(nome).stem).strip() if nome else ""
+    return f"{palavras}\n{texto}" if palavras else texto
+
+
+def classificar(texto: str, nome: str = "") -> Classificacao:
+    """Classifica o documento e explica a decisao.
+
+    `nome` e o nome do arquivo; quando vem, conta como parte do texto.
+    """
+    texto = com_nome(texto, nome)
     placar = pontuar(texto)
     normalizado = normalizar(texto)
     if "boleto" in placar and any(_tem_termo_forte(c, normalizado) for c in PAGOS_POR_BOLETO & placar.keys()):
