@@ -100,19 +100,17 @@ class TestArquivamento(BasePipeline):
         self.assertEqual(segundo.destino.name, "conta_energia_marco (2).txt")
         self.assertTrue(primeiro.destino.exists(), "o primeiro nao pode ter sumido")
 
-    def test_formato_nao_suportado_sai_da_entrada_para_pasta_propria(self):
-        """Deixado na entrada, ficava la para sempre sem ninguem saber por que."""
+    def test_formato_nao_suportado_fica_onde_esta(self):
+        """Levado para `_Nao_suportados/`, ele esvaziou aplicativos de uma pasta de Downloads."""
         alvo = self.config.pasta_entrada / "planilha.xlsx"
         alvo.write_text("qualquer coisa", encoding="utf-8")
 
         resultado = self.pipeline.processar(alvo)
         self.assertFalse(resultado.sucesso)
         self.assertEqual(resultado.ignorado, "formato nao suportado")
-        self.assertFalse(alvo.exists())
-        self.assertEqual(resultado.destino,
-                         self.config.pasta_saida / PASTA_NAO_SUPORTADOS / "planilha.xlsx")
-        self.assertEqual(self.catalogo.arquivos_no_disco(), [],
-                         "o que nao foi lido nao e documento do arquivo")
+        self.assertTrue(alvo.exists())
+        self.assertIsNone(resultado.destino)
+        self.assertFalse((self.config.pasta_saida / PASTA_NAO_SUPORTADOS).exists())
 
 
 class TestTodosOsExemplos(BasePipeline):

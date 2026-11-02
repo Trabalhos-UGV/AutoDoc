@@ -129,7 +129,7 @@ class TestEstado(BaseServidor):
 
     def test_conta_o_que_saiu_da_entrada_sem_virar_documento(self):
         pendencias = self.get("/api/documentos")["pendencias"]
-        self.assertEqual(pendencias, {"aguardando_ocr": 0, "nao_suportados": 0})
+        self.assertEqual(pendencias, {"aguardando_ocr": 0})
 
         parados = self.config.pasta_saida / "_Aguardando_OCR"
         parados.mkdir()

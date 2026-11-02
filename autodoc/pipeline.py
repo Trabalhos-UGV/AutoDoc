@@ -21,7 +21,6 @@ from pathlib import Path
 from .catalogo import (
     PASTA_AGUARDANDO_OCR,
     PASTA_DUPLICADOS,
-    PASTA_NAO_SUPORTADOS,
     PASTA_REVISAO,
     Catalogo,
     Ficha,
@@ -158,11 +157,11 @@ class Pipeline:
 
     def _processar(self, caminho: Path) -> Resultado:
         if caminho.suffix.lower() not in self.config.extensoes:
-            # Deixado na entrada, um .docx ficava ali para sempre e quem o
-            # largou achava que o AutoDoc tinha travado. Sai, para uma pasta
-            # que diz o motivo, e a tela conta quantos estao la.
-            destino = self._recolher(caminho, PASTA_NAO_SUPORTADOS)
-            return Resultado(caminho, ignorado="formato nao suportado", destino=destino)
+            # Fica onde esta. Antes ia para `_Nao_suportados/`, e com a pasta
+            # vigiada sendo a de Downloads isso levou `.dmg`, `.zip` e o
+            # conteudo de tres aplicativos embora. O que o AutoDoc nao le nao e
+            # documento, e nao cabe a ele tirar do lugar.
+            return Resultado(caminho, ignorado="formato nao suportado")
 
         try:
             assinatura = hash_arquivo(caminho)
