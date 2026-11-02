@@ -8,6 +8,7 @@ levantar. Nenhum deles pode parar o AutoDoc de vigiar a pasta.
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -91,7 +92,32 @@ class TestAguardarArquivoPronto(unittest.TestCase):
         alvo.write_text("x", encoding="utf-8")
 
         # existe na primeira olhada, sumiu na segunda
-        with mock.patch.object(Path, "exists", side_effect=[True, False]):
+        with mock.patch.object(monitor, "_assinatura",
+                               side_effect=[(1, 1), FileNotFoundError()]):
+            self.assertFalse(aguardar_arquivo_pronto(alvo))
+
+    def test_mesmo_tamanho_com_data_nova_ainda_nao_esta_pronto(self):
+        """Copia sobrescrevendo no lugar: o tamanho para, a data nao."""
+        alvo = self.pasta / "sobrescrito.pdf"
+        alvo.write_text("x", encoding="utf-8")
+        with mock.patch.object(monitor, "_assinatura",
+                               side_effect=[(5, 1), (5, 2), (5, 2)]):
+            self.assertTrue(aguardar_arquivo_pronto(alvo))
+
+    def test_arquivo_travado_por_quem_escreve_nao_esta_pronto(self):
+        """No Windows, quem ainda escreve impede os outros de abrir."""
+        alvo = self.pasta / "travado.pdf"
+        alvo.write_text("conteudo", encoding="utf-8")
+        with mock.patch.object(monitor, "TENTATIVAS_ESTABILIDADE", 3), \
+             mock.patch.object(Path, "open", side_effect=PermissionError("em uso")):
+            self.assertFalse(aguardar_arquivo_pronto(alvo))
+
+    def test_arquivo_que_some_depois_da_espera(self):
+        alvo = self.pasta / "vazio.txt"
+        alvo.touch()
+        with mock.patch.object(monitor, "TENTATIVAS_ESTABILIDADE", 2), \
+             mock.patch.object(monitor, "_assinatura",
+                               side_effect=[(0, 1), (0, 1), FileNotFoundError()]):
             self.assertFalse(aguardar_arquivo_pronto(alvo))
 
     def test_arquivo_vazio_nunca_estabiliza(self):
@@ -112,23 +138,19 @@ class TestAguardarArquivoPronto(unittest.TestCase):
 
         self.assertEqual(dormiu.call_count, 3, "deveria ter esgotado as tentativas")
 
-    def test_arquivo_que_cresce_sem_parar_esgota_as_tentativas(self):
-        """Download lento: a função desiste em vez de esperar para sempre."""
+    def test_arquivo_que_cresce_sem_parar_fica_para_depois(self):
+        """Download lento: a função desiste em vez de esperar para sempre — e
+        desistir é "não está pronto". Antes ela devolvia sim, e o PDF pela
+        metade ia para o arquivo como documento ilegível."""
         tamanhos = iter(range(1, 100))
-        estatistica = type("Estatistica", (), {})
-
-        def crescendo(*a, **k):
-            resultado = estatistica()
-            resultado.st_size = next(tamanhos)
-            return resultado
-
         alvo = self.pasta / "crescendo.txt"
         alvo.write_text("a", encoding="utf-8")
 
         with mock.patch.object(monitor, "TENTATIVAS_ESTABILIDADE", 4), \
              mock.patch.object(monitor.time, "sleep") as dormiu, \
-             mock.patch.object(Path, "stat", crescendo):
-            aguardar_arquivo_pronto(alvo)
+             mock.patch.object(monitor, "_assinatura",
+                               side_effect=lambda caminho: (next(tamanhos), 0)):
+            self.assertFalse(aguardar_arquivo_pronto(alvo))
 
         # desistiu depois das 4 tentativas em vez de esperar para sempre
         self.assertEqual(dormiu.call_count, 4)
@@ -332,6 +354,57 @@ class TestDispatch(BaseComPasta):
                 manipulador.dispatch(EventoFalso(src_path=alvo, event_type=tipo))
 
         self.assertEqual(len(self.catalogo), 0)
+
+
+class TestVarredura(BaseComPasta):
+    """O que o watchdog deixou para depois não pode esperar a próxima abertura."""
+
+    def test_pendentes_tambem_avisam_a_tela(self):
+        self.largar("conta.txt")
+        avisados = []
+        monitor.processar_pendentes(self.pipeline, avisados.append)
+        self.assertEqual(len(avisados), 1)
+
+    def test_a_varredura_pega_o_que_ficou_na_pasta(self):
+        observador = mock.Mock()
+        vigia = monitor.Vigia(observador, self.pipeline)
+        self.largar("conta.txt")
+
+        with mock.patch.object(monitor, "INTERVALO_VARREDURA", 0.01):
+            vigia.start()
+            for _ in range(200):
+                if not any(self.config.pasta_entrada.iterdir()):
+                    break
+                time.sleep(0.01)
+            vigia.stop()
+            vigia.join()
+
+        self.assertFalse(any(self.config.pasta_entrada.iterdir()))
+        observador.start.assert_called_once()
+        observador.stop.assert_called_once()
+        observador.join.assert_called_once()
+
+    def test_falha_na_varredura_nao_para_a_varredura(self):
+        vigia = monitor.Vigia(mock.Mock(), self.pipeline)
+        chamadas = []
+
+        def explode(*_):
+            chamadas.append(1)
+            if len(chamadas) >= 2:
+                vigia._parar.set()
+            raise RuntimeError("disco sumiu")
+
+        with mock.patch.object(monitor, "INTERVALO_VARREDURA", 0), \
+             mock.patch.object(monitor, "processar_pendentes", explode), \
+             self.assertLogs("autodoc.monitor", "ERROR"):
+            vigia._varrer()
+
+        self.assertEqual(len(chamadas), 2)
+
+    def test_parar_antes_de_comecar_nao_trava(self):
+        vigia = monitor.Vigia(mock.Mock(), self.pipeline)
+        vigia.stop()
+        vigia.join()
 
 
 class TestWatchdogAusente(BaseComPasta):

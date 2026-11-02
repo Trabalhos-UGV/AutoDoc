@@ -313,7 +313,7 @@ class Servidor:
         # colocado la a mao entra.
         self.catalogo.reconciliar(self.pipeline.analisar)
 
-        pendentes = processar_pendentes(self.pipeline)
+        pendentes = processar_pendentes(self.pipeline, ao_processar=self._anunciar)
         if pendentes:
             logger.info("%d documento(s) que ja estavam na pasta", pendentes)
 

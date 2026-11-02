@@ -1,12 +1,15 @@
 """Monitoramento da pasta de entrada com watchdog.
 
 Ao detectar um arquivo novo (ou movido para dentro da pasta), aguarda a copia
-terminar e entrega o arquivo ao pipeline.
+terminar e entrega o arquivo ao pipeline. Uma varredura periodica da pasta
+pega o que o watchdog deixou para depois: copia que nao terminou a tempo,
+arquivo travado por outro programa, evento que o sistema nao entregou.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -17,6 +20,9 @@ logger = logging.getLogger(__name__)
 # Intervalo entre checagens de tamanho para saber se a copia terminou.
 INTERVALO_ESTABILIDADE = 0.5
 TENTATIVAS_ESTABILIDADE = 20
+
+# De quanto em quanto tempo a pasta e varrida de novo, em segundos.
+INTERVALO_VARREDURA = 30
 
 # Sufixos de arquivo pela metade. Navegador e programa de escritorio escrevem
 # num arquivo temporario e so depois renomeiam para o nome final — processar o
@@ -43,21 +49,63 @@ def deve_ignorar(caminho: Path) -> bool:
     )
 
 
+def _assinatura(caminho: Path) -> tuple[int, int]:
+    """Tamanho e data de modificacao: os dois param quando a copia termina."""
+    estatistica = caminho.stat()
+    return estatistica.st_size, estatistica.st_mtime_ns
+
+
+def _abre_para_leitura(caminho: Path) -> bool:
+    """No Windows, quem ainda esta escrevendo trava o arquivo para os outros."""
+    try:
+        with caminho.open("rb"):
+            return True
+    except OSError:
+        return False
+
+
 def aguardar_arquivo_pronto(caminho: Path) -> bool:
-    """Espera o arquivo parar de crescer (copia/download em andamento)."""
-    anterior = -1
+    """Espera a copia ou o download terminar.
+
+    Pronto e: tamanho **e** data de modificacao iguais em duas olhadas, e o
+    arquivo abrindo para leitura. So o tamanho nao bastava — uma copia que
+    sobrescreve no lugar mantem o tamanho e muda a data.
+
+    Se o tempo esgotar com o arquivo ainda mudando, a resposta e "nao": antes
+    ele era processado mesmo assim, e um PDF pela metade ia parar no arquivo
+    como documento ilegivel. Agora ele fica na entrada e a varredura periodica
+    tenta de novo.
+    """
+    anterior = None
     for _ in range(TENTATIVAS_ESTABILIDADE):
-        if not caminho.exists():
+        try:
+            atual = _assinatura(caminho)
+        except OSError:  # sumiu no meio da espera
             return False
-        atual = caminho.stat().st_size
-        if atual == anterior and atual > 0:
+        if atual == anterior and atual[0] > 0 and _abre_para_leitura(caminho):
             return True
         anterior = atual
         time.sleep(INTERVALO_ESTABILIDADE)
-    return caminho.exists()
+
+    # Zero byte e parado do comeco ao fim e um arquivo vazio de verdade, e nao
+    # uma copia que ainda nao comecou: processar e melhor do que ignora-lo.
+    try:
+        return anterior is not None and anterior[0] == 0 and _assinatura(caminho) == anterior
+    except OSError:
+        return False
 
 
-def processar_pendentes(pipeline: Pipeline) -> int:
+def _avisar(ao_processar, resultado) -> None:
+    """Um erro no callback nao pode derrubar quem vigia a pasta."""
+    if not (resultado.sucesso and ao_processar):
+        return
+    try:
+        ao_processar(resultado)
+    except Exception:
+        logger.exception("falha ao notificar documento novo")
+
+
+def processar_pendentes(pipeline: Pipeline, ao_processar=None) -> int:
     """Processa o que ja estava na pasta antes do monitor subir.
 
     Cada arquivo e tratado por conta propria: um documento problematico nao
@@ -78,10 +126,13 @@ def processar_pendentes(pipeline: Pipeline) -> int:
         if not aguardar_arquivo_pronto(caminho):
             continue
         try:
-            if pipeline.processar(caminho).sucesso:
-                total += 1
+            resultado = pipeline.processar(caminho)
         except Exception:
             logger.exception("falha ao processar %s", caminho.name)
+            continue
+        if resultado.sucesso:
+            total += 1
+        _avisar(ao_processar, resultado)
     return total
 
 
@@ -137,17 +188,48 @@ class _Manipulador:
             logger.exception("falha ao processar %s", caminho.name)
             return
 
-        if resultado.sucesso and self.ao_processar:
-            # Um erro no callback nao pode derrubar o observador: o
-            # monitoramento e o que faz o programa existir.
+        _avisar(self.ao_processar, resultado)
+
+
+class Vigia:
+    """O observador do watchdog mais a varredura periodica, parados juntos.
+
+    O watchdog sozinho perde arquivo: o que nao ficou pronto a tempo, o que
+    nao conseguiu ser movido (travado no Windows) e o evento que o sistema nao
+    entregou (pasta de rede, pen drive) ficavam na entrada ate a proxima
+    abertura do programa — que podia ser dias depois.
+    """
+
+    def __init__(self, observador, pipeline: Pipeline, ao_processar=None) -> None:
+        self.observador = observador
+        self.pipeline = pipeline
+        self.ao_processar = ao_processar
+        self._parar = threading.Event()
+        self._varredura = threading.Thread(target=self._varrer, daemon=True)
+
+    def start(self) -> None:
+        self.observador.start()
+        self._varredura.start()
+
+    def _varrer(self) -> None:
+        while not self._parar.wait(INTERVALO_VARREDURA):
             try:
-                self.ao_processar(resultado)
+                processar_pendentes(self.pipeline, self.ao_processar)
             except Exception:
-                logger.exception("falha ao notificar documento novo")
+                logger.exception("falha na varredura da pasta monitorada")
+
+    def stop(self) -> None:
+        self._parar.set()
+        self.observador.stop()
+
+    def join(self) -> None:
+        self.observador.join()
+        if self._varredura.is_alive():
+            self._varredura.join()
 
 
-def criar_observador(pipeline: Pipeline, ao_processar=None):
-    """Monta e inicia o observador da pasta de entrada.
+def criar_observador(pipeline: Pipeline, ao_processar=None) -> Vigia:
+    """Monta e inicia o observador da pasta de entrada, com a varredura.
 
     `ao_processar` recebe cada Resultado bem-sucedido — e por onde o servidor
     web fica sabendo que ha documento novo para empurrar para a tela. Devolve o
@@ -167,8 +249,9 @@ def criar_observador(pipeline: Pipeline, ao_processar=None):
         str(pipeline.config.pasta_entrada),
         recursive=False,
     )
-    observador.start()
-    return observador
+    vigia = Vigia(observador, pipeline, ao_processar)
+    vigia.start()
+    return vigia
 
 
 def monitorar(pipeline: Pipeline) -> None:

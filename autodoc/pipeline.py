@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -68,8 +69,17 @@ class Pipeline:
     def __init__(self, config: Config, catalogo: Catalogo) -> None:
         self.config = config
         self.catalogo = catalogo
+        # O watchdog e a varredura periodica podem achar o mesmo arquivo ao
+        # mesmo tempo; um de cada vez, e o segundo ve que ele ja saiu.
+        self._trava = threading.Lock()
 
     def processar(self, caminho: Path) -> Resultado:
+        with self._trava:
+            if not caminho.exists():
+                return Resultado(caminho, ignorado="arquivo nao esta mais na pasta")
+            return self._processar(caminho)
+
+    def _processar(self, caminho: Path) -> Resultado:
         if caminho.suffix.lower() not in self.config.extensoes:
             return Resultado(caminho, ignorado="extensao nao monitorada")
 
@@ -135,7 +145,15 @@ class Pipeline:
         data = extrair_data(texto) or data_pasta
         etapas.append({"titulo": "Data", "detalhe": detalhe_data})
 
-        destino = self._arquivar(caminho, classificacao, data_pasta)
+        try:
+            destino = self._arquivar(caminho, classificacao, data_pasta)
+        except OSError as erro:
+            # Travado por outro programa (comum no Windows), caminho longo,
+            # disco cheio. Nada foi fichado: o arquivo fica na entrada e a
+            # varredura periodica tenta de novo.
+            logger.warning("nao foi possivel mover %s: %s; nova tentativa depois",
+                           caminho.name, erro)
+            return Resultado(caminho, ignorado=f"nao foi possivel mover: {erro}")
         relativo = self._relativo(destino)
         etapas.append({
             "titulo": "Arquivamento",
@@ -301,7 +319,15 @@ class Pipeline:
         pasta.mkdir(parents=True, exist_ok=True)
 
         destino = self._nome_livre(pasta / caminho.name)
-        shutil.move(str(caminho), destino)
+        try:
+            shutil.move(str(caminho), destino)
+        except OSError:
+            # Entre volumes o move e copia + apagar; se apagar a origem falhou,
+            # o destino ficou com uma copia. Deixa-la geraria "nome (2)" na
+            # proxima tentativa — o original continua na entrada, ele vale.
+            if caminho.exists() and destino.exists():
+                destino.unlink()
+            raise
         return destino
 
     def _relativo(self, destino: Path) -> str:

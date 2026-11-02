@@ -304,6 +304,45 @@ class TestFalhasAoMover(BasePipeline):
              self.assertLogs("autodoc.pipeline", "WARNING"):
             self.assertIsNone(self.pipeline._recolher(alvo, "_Duplicados"))
 
+    def test_arquivo_travado_fica_na_entrada_para_nova_tentativa(self):
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+
+        with mock.patch.object(pipeline_modulo.shutil, "move",
+                               side_effect=PermissionError("em uso por outro programa")), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            resultado = self.pipeline.processar(alvo)
+
+        self.assertFalse(resultado.sucesso)
+        self.assertIn("mover", resultado.ignorado)
+        self.assertTrue(alvo.exists())
+        self.assertEqual(len(self.catalogo), 0, "nada pode ser fichado sem ter sido movido")
+
+        # na proxima tentativa, ja destravado, ele vai
+        self.assertTrue(self.pipeline.processar(alvo).sucesso)
+
+    def test_copia_que_ficou_no_destino_e_desfeita(self):
+        """Entre volumes o move copia e depois apaga; se apagar falha, a copia
+        no destino faria a proxima tentativa virar "nome (2)"."""
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+
+        def copia_e_falha(origem, destino):
+            shutil.copy2(origem, destino)
+            raise PermissionError("origem em uso")
+
+        with mock.patch.object(pipeline_modulo.shutil, "move", copia_e_falha), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            self.pipeline.processar(alvo)
+
+        self.assertTrue(alvo.exists())
+        saida = self.config.pasta_saida
+        self.assertEqual([c for c in saida.rglob("*.txt")], [])
+
+    def test_arquivo_que_ja_saiu_da_pasta_nao_e_processado(self):
+        """O watchdog e a varredura acharam o mesmo arquivo; o segundo chega tarde."""
+        resultado = self.pipeline.processar(self.config.pasta_entrada / "ja-foi.txt")
+        self.assertFalse(resultado.sucesso)
+        self.assertIn("nao esta mais", resultado.ignorado)
+
     def test_arquivo_ilegivel_no_hash_e_avisado(self):
         alvo = self.largar_exemplo("conta_energia_marco.txt")
 
