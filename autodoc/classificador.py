@@ -60,7 +60,9 @@ PESO_MARGEM = 0.45
 REGRAS: dict[str, dict[str, int]] = {
     "conta_luz": {
         "kwh": 4, "consumo faturado": 4, "energia eletrica": 3, "conta de energia": 3,
-        "leitura anterior": 3, "leitura atual": 3, "bandeira tarifaria": 4,
+        # Leitura anterior/atual estao em toda conta de consumo — agua e gas
+        # tambem. Valiam 3 cada e puxavam a conta de gas para luz.
+        "leitura anterior": 1, "leitura atual": 1, "bandeira tarifaria": 4,
         "total a pagar": 2, "consumo": 1, "distribuidora": 2,
         # Concessionarias — na pratica e o sinal mais forte de todos.
         "cemig": 4, "copel": 4, "enel": 4, "cpfl": 4, "equatorial": 4,
@@ -76,6 +78,7 @@ REGRAS: dict[str, dict[str, int]] = {
     },
     "conta_gas": {
         "comgas": 5, "naturgy": 5, "gas canalizado": 5, "gas natural": 4, "gas": 2,
+        "gas natural canalizado": 5, "gas encanado": 5, "fornecimento de gas": 4,
     },
     "telefone_internet": {
         "vivo": 4, "telefonica": 4, "claro s.a": 4, "tim s.a": 4, "oi fibra": 4,
@@ -162,7 +165,8 @@ REGRAS: dict[str, dict[str, int]] = {
     },
     "documentacao": {
         # O normalizador junta "LEIA-ME" em "leiame".
-        "leiame": 5, "readme": 5, "como instalar": 4, "como importar": 4,
+        # "leia me": o nome do arquivo LEIA-ME.md, com o hifen virado espaco.
+        "leiame": 5, "leia me": 5, "readme": 5, "como instalar": 4, "como importar": 4,
         "instalacao manual": 4, "instrucoes de instalacao": 4,
         "use quando o usuario": 4, "como usar": 4, "pip install": 4, "npm install": 4,
         "documentacao": 3, "skill": 3, "instalacao": 2,
