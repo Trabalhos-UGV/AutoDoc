@@ -198,6 +198,14 @@ class TestAlemDasContas(unittest.TestCase):
                 self.assertEqual(classificar(texto).categoria, categoria)
                 self.assertIn(categoria, ROTULOS)
 
+    def test_conta_de_gas_com_leitura_nao_vira_luz(self):
+        texto = ("GAS ENCANADO DO SUL  Fornecimento de gas natural canalizado  "
+                 "Leitura anterior: 05/12/2025  Leitura atual: 06/01/2026  Total a pagar: R$ 74,10")
+        self.assertEqual(classificar(texto).categoria, "conta_gas")
+
+    def test_leia_me_pelo_nome_do_arquivo(self):
+        self.assertEqual(classificar("Como usar: copie os arquivos.", "LEIA-ME.md").categoria, "documentacao")
+
     def test_informativo_sozinho_e_fraco(self):
         # Rodape de conta: "mensagem informativa" nao faz da conta um folheto.
         self.assertEqual(classificar("Informativo: confira seus dados").categoria, NAO_CLASSIFICADO)

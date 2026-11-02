@@ -5,6 +5,7 @@ Uso:
     python main.py monitorar          # observa a pasta pelo terminal
     python main.py buscar "luz marco" # busca nos documentos indexados
     python main.py listar             # ultimos documentos processados
+    python main.py exemplos           # copia os documentos de exemplo para a pasta vigiada
     python main.py gestos             # controla o mouse com a mao, pela webcam
     python main.py gestos --quadro    # quadro de desenho para treinar os gestos
     python main.py gestos --tetris    # Tetris comandado pela mao
@@ -16,7 +17,7 @@ import argparse
 import logging
 import sys
 
-from autodoc import __version__, registro
+from autodoc import __version__, exemplos, registro
 from autodoc.catalogo import Catalogo
 from autodoc.config import Config
 from autodoc.gestos import GestosIndisponiveis
@@ -45,6 +46,8 @@ def montar_parser() -> argparse.ArgumentParser:
 
     listar = subcomandos.add_parser("listar", help="ultimos documentos processados")
     listar.add_argument("--limite", type=int, default=20)
+
+    subcomandos.add_parser("exemplos", help="copia os documentos de exemplo para a pasta vigiada")
 
     gestos = subcomandos.add_parser("gestos", help="controla o mouse com gestos da mao, pela webcam")
     gestos.add_argument("--camera", type=int, default=0, help="indice da webcam (padrao 0)")
@@ -144,6 +147,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if comando == "listar":
         imprimir(catalogo.listar(args.limite))
+        return 0
+
+    if comando == "exemplos":
+        # Para apresentar de novo. Com o AutoDoc aberto, eles sao organizados na
+        # hora; fechado, na proxima abertura.
+        copiados = exemplos.copiar(config.pasta_entrada)
+        print(f"{len(copiados)} exemplo(s) copiado(s) para {config.pasta_entrada}")
         return 0
 
     pipeline = Pipeline(config, catalogo)
