@@ -17,7 +17,12 @@ from pathlib import Path
 from unittest import mock
 
 from autodoc import extrator
-from autodoc.extrator import ExtracaoIndisponivel, extrair_com_origem, hash_arquivo
+from autodoc.extrator import (
+    ExtracaoIndisponivel,
+    OcrIndisponivel,
+    extrair_com_origem,
+    hash_arquivo,
+)
 
 TEXTO_DA_CONTA = (
     "CEMIG DISTRIBUICAO S.A.\n"
@@ -111,7 +116,8 @@ class TestOcrDePdf(BaseArquivos):
 
     def test_pdf_digitalizado_nao_tem_camada_de_texto(self):
         """A premissa do fallback: sem isto nao haveria o que consertar."""
-        self.assertEqual(extrator._extrair_pdf(self.pdf), "")
+        from pypdf import PdfReader
+        self.assertEqual(extrator._texto_da_pagina(PdfReader(str(self.pdf)).pages[0]), "")
 
     def test_o_pypdf_alcanca_a_imagem_embutida(self):
         from pypdf import PdfReader
@@ -141,13 +147,13 @@ class TestOcrDePdf(BaseArquivos):
 
     def test_pdf_com_camada_de_texto_nao_aciona_o_ocr(self):
         """OCR e caro; so entra quando nao ha texto para ler."""
-        with mock.patch.object(extrator, "_extrair_pdf", return_value="ja tem texto"), \
+        with mock.patch.object(extrator, "_texto_da_pagina", return_value=TEXTO_DA_CONTA), \
              mock.patch.object(extrator, "texto_da_imagem") as ocr:
             texto, origem = extrair_com_origem(self.pdf)
 
         ocr.assert_not_called()
         self.assertEqual(origem, "PDF com texto embutido")
-        self.assertEqual(texto, "ja tem texto")
+        self.assertEqual(texto, TEXTO_DA_CONTA)
 
     def test_sem_tesseract_vira_extracao_indisponivel(self):
         """A situacao desta maquina: pytesseract instalado, Tesseract nao."""
@@ -155,7 +161,7 @@ class TestOcrDePdf(BaseArquivos):
 
         with mock.patch.object(pytesseract, "image_to_string",
                                side_effect=pytesseract.TesseractNotFoundError()):
-            with self.assertRaises(ExtracaoIndisponivel) as erro:
+            with self.assertRaises(OcrIndisponivel) as erro:
                 extrair_com_origem(self.pdf)
 
         self.assertIn("Tesseract", str(erro.exception))
@@ -208,31 +214,115 @@ class TestDependenciasAusentes(BaseArquivos):
         self.assertEqual(origem, "arquivo de texto")
 
 
+TEXTO_LONGO = "CONTRATO DE LOCACAO — clausula primeira, do objeto e do prazo"
+
+
+def pagina_falsa(texto: str = "", imagens: int = 0):
+    pagina = mock.Mock(images=[mock.Mock(image=None) for _ in range(imagens)])
+    pagina.extract_text.return_value = texto
+    return pagina
+
+
+def extrair_paginas(paginas):
+    with mock.patch.object(extrator, "_leitor_pdf", return_value=mock.Mock(pages=paginas)):
+        return extrator._extrair_pdf(Path("qualquer.pdf"))
+
+
 class TestPaginasDefeituosas(BaseArquivos):
     def test_uma_pagina_ruim_nao_invalida_as_outras(self):
-        boa = mock.Mock()
-        boa.extract_text.return_value = "texto da pagina boa"
-        ruim = mock.Mock()
+        ruim = mock.Mock(images=[])
         ruim.extract_text.side_effect = RuntimeError("objeto corrompido")
 
-        leitor = mock.Mock(pages=[ruim, boa])
-        with mock.patch.object(extrator, "_leitor_pdf", return_value=leitor):
-            self.assertEqual(extrator._extrair_pdf(Path("qualquer.pdf")),
-                             "texto da pagina boa")
+        texto, _ = extrair_paginas([ruim, pagina_falsa(TEXTO_LONGO)])
+        self.assertEqual(texto, TEXTO_LONGO)
 
     def test_imagem_que_o_pypdf_nao_decodifica_e_pulada(self):
-        pagina = mock.Mock()
+        pagina = pagina_falsa()
         type(pagina).images = mock.PropertyMock(side_effect=RuntimeError("filtro exotico"))
+        self.assertEqual(extrator._ocr_da_pagina(pagina), "")
 
-        leitor = mock.Mock(pages=[pagina])
-        with mock.patch.object(extrator, "_leitor_pdf", return_value=leitor):
-            self.assertEqual(extrator._ocr_de_pdf(Path("qualquer.pdf")), "")
+    def test_uma_imagem_ilegivel_nao_derruba_as_outras(self):
+        lidas = iter([ExtracaoIndisponivel("imagem corrompida"), "RECIBO"])
+
+        def ocr(_imagem):
+            lido = next(lidas)
+            if isinstance(lido, Exception):
+                raise lido
+            return lido
+
+        with mock.patch.object(extrator, "texto_da_imagem", ocr):
+            self.assertEqual(extrator._ocr_da_pagina(pagina_falsa(imagens=2)), "RECIBO")
+
+
+class TestOcrPorPagina(BaseArquivos):
+    """A decisao do OCR e de cada pagina, e nao do PDF inteiro."""
+
+    def test_pdf_misto_le_as_duas_partes(self):
+        """Contrato digitado com a pagina assinada escaneada no fim."""
+        paginas = [pagina_falsa(TEXTO_LONGO), pagina_falsa(imagens=1)]
+        with mock.patch.object(extrator, "texto_da_imagem", return_value="Assinado em 10/03/2026"):
+            texto, origem = extrair_paginas(paginas)
+
+        self.assertIn("CONTRATO", texto)
+        self.assertIn("Assinado", texto)
+        self.assertEqual(origem, "PDF com texto embutido + OCR em 1 página(s)")
+
+    def test_numero_da_pagina_em_texto_nao_impede_o_ocr(self):
+        with mock.patch.object(extrator, "texto_da_imagem", return_value=TEXTO_DA_CONTA):
+            texto, origem = extrair_paginas([pagina_falsa("Página 1 de 1", imagens=1)])
+
+        self.assertIn("kWh", texto)
+        self.assertIn("Página 1", texto)
+        self.assertEqual(origem, "PDF digitalizado — OCR")
+
+    def test_sem_ocr_o_texto_que_ha_e_aproveitado_e_dito(self):
+        paginas = [pagina_falsa(TEXTO_LONGO), pagina_falsa(imagens=1), pagina_falsa(imagens=1)]
+        with mock.patch.object(extrator, "texto_da_imagem",
+                               side_effect=OcrIndisponivel("sem Tesseract")) as ocr:
+            texto, origem = extrair_paginas(paginas)
+
+        self.assertEqual(texto, TEXTO_LONGO)
+        self.assertIn("sem OCR", origem)
+        self.assertEqual(ocr.call_count, 1, "sem OCR uma vez, sem OCR nas outras")
+
+    def test_pagina_curta_sem_imagem_nao_muda_a_origem(self):
+        texto, origem = extrair_paginas([pagina_falsa(TEXTO_LONGO), pagina_falsa("fim")])
+        self.assertEqual(origem, "PDF com texto embutido")
+        self.assertTrue(texto.endswith("fim"))
+
+
+class TestPreparoDaImagem(unittest.TestCase):
+    def test_foto_de_lado_e_endireitada_pelo_exif(self):
+        from PIL import Image
+
+        deitada = Image.new("RGB", (1600, 1300), "white")
+        exif = deitada.getexif()
+        exif[0x0112] = 6  # Orientation: girar 90 graus
+        with tempfile.TemporaryDirectory() as pasta:
+            alvo = Path(pasta) / "foto.jpg"
+            deitada.save(alvo, exif=exif)
+            with Image.open(alvo) as aberta:
+                pronta = extrator.preparar_para_ocr(aberta)
+
+        self.assertEqual(pronta.size, (1300, 1600))
+        self.assertEqual(pronta.mode, "L")
+
+    def test_imagem_pequena_e_ampliada_com_teto(self):
+        from PIL import Image
+
+        self.assertEqual(extrator.preparar_para_ocr(Image.new("RGB", (600, 400))).size,
+                         (1800, 1200))
+        miniatura = extrator.preparar_para_ocr(Image.new("RGB", (100, 50)))
+        self.assertEqual(miniatura.size, (400, 200))
+
+    def test_imagem_grande_nao_e_mexida_no_tamanho(self):
+        from PIL import Image
+        self.assertEqual(extrator.preparar_para_ocr(Image.new("RGB", (2480, 3508))).size,
+                         (2480, 3508))
 
     def test_pdf_sem_texto_e_sem_imagem(self):
         """Um PDF só com vetores: não há o que ler nem o que passar pelo OCR."""
-        pagina = mock.Mock(images=[])
-        pagina.extract_text.return_value = ""
-        leitor = mock.Mock(pages=[pagina])
+        leitor = mock.Mock(pages=[pagina_falsa()])
         with mock.patch.object(extrator, "_leitor_pdf", return_value=leitor):
             texto, origem = extrair_com_origem(Path("vazio.pdf"))
 
@@ -241,12 +331,10 @@ class TestPaginasDefeituosas(BaseArquivos):
 
     def test_o_teto_de_paginas_do_ocr_e_respeitado(self):
         """Um PDF de duzentas páginas travaria o monitoramento inteiro."""
-        paginas = [mock.Mock(images=[mock.Mock(image=None)]) for _ in range(40)]
-        leitor = mock.Mock(pages=paginas)
+        paginas = [pagina_falsa(imagens=1) for _ in range(40)]
 
-        with mock.patch.object(extrator, "_leitor_pdf", return_value=leitor), \
-             mock.patch.object(extrator, "texto_da_imagem", return_value="x") as ocr:
-            extrator._ocr_de_pdf(Path("longo.pdf"))
+        with mock.patch.object(extrator, "texto_da_imagem", return_value="x") as ocr:
+            extrair_paginas(paginas)
 
         self.assertEqual(ocr.call_count, extrator.PAGINAS_OCR)
 
@@ -258,7 +346,8 @@ class TestOcrQueFalhaDeVez(BaseArquivos):
         with mock.patch.object(pytesseract, "image_to_string",
                                side_effect=pytesseract.TesseractError(1, "imagem corrompida")):
             with self.assertRaises(ExtracaoIndisponivel) as erro:
-                extrator.texto_da_imagem(object())
+                from PIL import Image
+                extrator.texto_da_imagem(Image.new("RGB", (10, 10)))
 
         self.assertIn("OCR falhou", str(erro.exception))
 
