@@ -646,9 +646,51 @@ def testar_tarefa(_args) -> bool:
             else:
                 r.falha(f"a correção à mão não funcionou: {resposta.get('erro')}")
 
-    print(_pintar("\n  Tarefa 3 — \"quero jogar Tetris pelo teclado\"", "1"))
+        print(_pintar("\n  Tarefa 3 — \"larguei dez documentos de uma vez; cada um na sua pasta\"", "1"))
+        _tarefa_dez_documentos(r, config, url)
+
+    print(_pintar("\n  Tarefa 4 — \"quero jogar Tetris pelo teclado\"", "1"))
     _tarefa_do_tetris(r)
     return r.fechar()
+
+
+# Um de cada tipo, tirados do corpus dos testes — que e onde fica decidido, com
+# o grupo, qual pasta e a certa para cada documento.
+DEZ_DOCUMENTOS = (
+    "luz_tabela.txt", "agua_sabesp.txt", "gas_comgas.txt", "internet_vivo.txt",
+    "fatura_cartao.txt", "holerite.txt", "iptu.txt", "danfe.txt", "pix.txt", "cnh.txt",
+)
+
+
+def _tarefa_dez_documentos(r: Relatorio, config, url: str) -> None:
+    from testes.test_documentos_reais import CORPUS, MODIFICACAO_FALSA
+
+    esperado = {nome: pasta for nome, pasta, _ in CORPUS if nome in DEZ_DOCUMENTOS}
+    for nome, _, texto in CORPUS:
+        if nome in esperado:
+            alvo = config.pasta_entrada / nome
+            alvo.write_text(texto, encoding="utf-8")
+            # Data do arquivo em 2001: quem arquivasse por ela cairia em 2001/01.
+            os.utime(alvo, (MODIFICACAO_FALSA, MODIFICACAO_FALSA))
+
+    def chegaram() -> dict[str, str]:
+        linhas = _pedir(url + "api/documentos")[0]["todos"]
+        return {l["arquivo"]: l["destino"].rstrip("/") for l in linhas if l["arquivo"] in esperado}
+
+    _esperar(lambda: len(chegaram()) == len(esperado), 30)
+    destinos = chegaram()
+
+    errados = [f"{nome} foi para {destinos.get(nome, 'lugar nenhum')}, e era {pasta}"
+               for nome, pasta in sorted(esperado.items()) if destinos.get(nome) != pasta]
+    if not errados:
+        r.ok(f"os {len(esperado)} foram para a pasta certa — categoria, ano e mês")
+    else:
+        r.falha(f"{len(errados)} de {len(esperado)} na pasta errada: " + "; ".join(errados),
+                "rode python -m unittest testes.test_documentos_reais e veja o caso")
+    if not any(config.pasta_entrada.iterdir()):
+        r.ok("a pasta de entrada esvaziou")
+    else:
+        r.falha("sobrou arquivo na pasta de entrada", "o que fica ali a pessoa acha que o AutoDoc ignorou")
 
 
 def _ouvir_eventos(url: str, ouvidos: list[dict]) -> None:
