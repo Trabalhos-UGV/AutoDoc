@@ -168,6 +168,14 @@ class TestListarEBuscar(BaseCLI):
         self.assertIn("conta_energia_marco.txt", saida)
 
 
+class TestExemplos(BaseCLI):
+    def test_copia_os_exemplos_para_a_pasta_vigiada(self):
+        codigo, saida = self.rodar(["exemplos"])
+        self.assertEqual(codigo, 0)
+        self.assertIn("exemplo(s) copiado(s)", saida)
+        self.assertTrue((self.config.pasta_entrada / "projeto_site" / "index.html").exists())
+
+
 class TestMonitorarPeloCLI(BaseCLI):
     def test_processa_pendentes_e_entra_no_laco(self):
         with mock.patch.object(main, "processar_pendentes", return_value=3) as pendentes, \

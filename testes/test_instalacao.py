@@ -110,6 +110,15 @@ class TestDefinirPasta(BaseInstalacao):
         self.rodar(instalador.definir_pasta)
         self.assertTrue(self.escolhida.is_dir())
 
+    def test_copia_os_exemplos_so_na_primeira_vez(self):
+        linhas, _ = self.rodar(instalador.definir_pasta)
+        self.assertTrue(any("exemplo(s) copiado(s)" in l for l in linhas))
+        self.assertTrue((self.escolhida / "conta_luz_marco_2026.pdf").exists())
+        self.assertFalse((self.escolhida / "LEIA-ME.md").exists())
+
+        linhas, _ = self.rodar(instalador.definir_pasta)
+        self.assertTrue(any("exemplos já copiados" in l for l in linhas))
+
 
 class TestInstalacaoCompleta(BaseInstalacao):
     def test_as_seis_etapas_tem_titulo(self):
