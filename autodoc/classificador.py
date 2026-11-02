@@ -22,6 +22,17 @@ NAO_CLASSIFICADO = "nao_classificado"
 # Abaixo disto o documento vai para revisao manual.
 LIMIAR = 0.60
 
+# A categoria vencedora precisa de ao menos um termo com este peso. Termos
+# fracos ("pix", "cpf", "vencimento") aparecem em quase todo documento: uma
+# carta do banco que so cita "cadastre sua chave Pix" virava comprovante com 82%
+# de confianca, porque era a unica categoria que pontuava.
+PESO_FORTE = 3
+
+# Boleto e forma de pagamento, nao tipo de documento: fatura de cartao, conta de
+# luz e IPTU chegam todos com linha digitavel. Quando um destes tipos tem termo
+# forte no texto, o "boleto" sai da disputa — senao a fatura empatava com ele.
+PAGOS_POR_BOLETO = {"fatura_cartao", "impostos", "conta_luz", "conta_agua", "conta_gas", "telefone_internet"}
+
 # Quanto a confianca vem de cada coisa. "Cobertura" e quanta evidencia da regra
 # apareceu; "margem" e o quanto a vencedora se destacou da segunda colocada.
 # Uma so nao basta: um texto que casa muitos termos de duas categorias ao mesmo
@@ -36,29 +47,61 @@ PESO_MARGEM = 0.45
 # categoria: uma conta de luz nao escreve "distribuidora", escreve "CEMIG" e
 # "total a pagar". Escrever a regra pensando no documento, e nao no conceito,
 # e o que faz a diferenca entre acertar e mandar tudo para revisao.
+#
+# Palavra comum nao entra sozinha: "das" esta em "das partes", "claro" em
+# "claro que", "oi" em qualquer conversa. Por isso "das mei", "claro s.a.",
+# "oi fibra".
 REGRAS: dict[str, dict[str, int]] = {
     "conta_luz": {
-        "kwh": 4, "consumo faturado": 4, "energia eletrica": 3,
+        "kwh": 4, "consumo faturado": 4, "energia eletrica": 3, "conta de energia": 3,
         "leitura anterior": 3, "leitura atual": 3, "bandeira tarifaria": 4,
         "total a pagar": 2, "consumo": 1, "distribuidora": 2,
         # Concessionarias — na pratica e o sinal mais forte de todos.
         "cemig": 4, "copel": 4, "enel": 4, "cpfl": 4, "equatorial": 4,
-        "neoenergia": 4, "celesc": 4, "light": 3,
+        "neoenergia": 4, "celesc": 4, "light": 3, "energisa": 4, "edp": 4,
+        "fatura de energia": 3,
+        "elektro": 4, "rge": 4, "ceee": 4, "coelba": 4, "celpe": 4, "cosern": 4,
     },
     "conta_agua": {
         "hidrometro": 4, "saneamento": 4, "consumo de agua": 4,
         "metros cubicos": 3, "m3": 2, "esgoto": 3, "agua": 1,
         "sabesp": 4, "copasa": 4, "sanepar": 4, "cagece": 4, "embasa": 4,
+        "cedae": 4, "corsan": 4, "caesb": 4, "compesa": 4, "casan": 4, "saneago": 4,
+    },
+    "conta_gas": {
+        "comgas": 5, "naturgy": 5, "gas canalizado": 5, "gas natural": 4, "gas": 2,
+    },
+    "telefone_internet": {
+        "vivo": 4, "telefonica": 4, "claro s.a": 4, "tim s.a": 4, "oi fibra": 4,
+        "telecomunicacao": 4, "telecomunicacoes": 4, "banda larga": 4,
+        "fibra": 2, "internet": 2, "plano": 1,
+    },
+    "fatura_cartao": {
+        "fatura do cartao": 5, "cartao de credito": 4, "total da fatura": 4,
+        "pagamento minimo": 4, "limite disponivel": 4, "fechamento": 3,
+    },
+    "holerite": {
+        "contracheque": 5, "holerite": 5, "recibo de pagamento de salario": 5,
+        "salario base": 4, "liquido a receber": 4, "fgts": 3, "inss": 2,
+        "irrf": 2, "competencia": 2,
+    },
+    "impostos": {
+        "iptu": 5, "ipva": 5, "imposto predial": 5, "inscricao imobiliaria": 4,
+        "das mei": 5, "simples nacional": 4, "documento de arrecadacao": 4,
+        "darf": 5, "receita federal": 3, "prefeitura": 3, "periodo de apuracao": 3,
+        "secretaria da fazenda": 4, "renavam": 4, "cota unica": 3, "parcela unica": 3,
     },
     "nota_fiscal": {
         "danfe": 5, "nota fiscal": 4, "nota fiscal eletronica": 5,
-        "nfe": 3, "chave de acesso": 4, "valor total da nota": 4,
+        "nfe": 3, "nfce": 4, "nota fiscal de consumidor": 5, "cupom fiscal": 5,
+        "chave de acesso": 4, "valor total da nota": 4,
         "icms": 3, "natureza da operacao": 4, "cnpj": 2, "valor total": 2,
     },
     "boleto": {
         "linha digitavel": 5, "codigo de barras": 4, "cedente": 4,
-        "sacado": 3, "nosso numero": 4, "beneficiario": 3,
-        "boleto": 4, "vencimento": 2, "agencia/codigo": 3,
+        "sacado": 3, "pagador": 3, "nosso numero": 4, "beneficiario": 3,
+        "ficha de compensacao": 4, "local de pagamento": 4,
+        "boleto": 4, "vencimento": 1, "agencia/codigo": 3,
     },
     "contrato": {
         "contrato de locacao": 5, "clausula": 4, "clausula primeira": 4,
@@ -66,13 +109,16 @@ REGRAS: dict[str, dict[str, int]] = {
         "das partes": 3, "contrato": 3, "foro da comarca": 4,
     },
     "comprovante": {
-        "comprovante": 4, "pix": 4, "id da transacao": 5,
-        "chave pix": 5, "transferencia": 3, "comprovante de pagamento": 5,
-        "autenticacao": 3, "favorecido": 3, "pagamento": 1,
+        "comprovante": 4, "id da transacao": 5, "transferencia": 3,
+        "comprovante de pagamento": 5, "efetuado em": 3,
+        "autenticacao": 3, "favorecido": 3,
+        # Fracos: estao em quase todo boleto e conta de hoje.
+        "pix": 1, "chave pix": 1, "pagamento": 1,
     },
     "documento_pessoal": {
-        "carteira de identidade": 5, "cnh": 4, "orgao expedidor": 4,
-        "filiacao": 4, "naturalidade": 4, "cpf": 2, "rg": 2, "identidade": 3,
+        "carteira de identidade": 5, "carteira nacional de habilitacao": 5,
+        "cnh": 4, "orgao expedidor": 4, "registro geral": 4,
+        "filiacao": 4, "naturalidade": 4, "identidade": 3, "cpf": 1, "rg": 1,
     },
 }
 
@@ -83,6 +129,11 @@ REGRAS: dict[str, dict[str, int]] = {
 ALVOS: dict[str, int] = {
     "conta_luz": 12,
     "conta_agua": 11,
+    "conta_gas": 9,
+    "telefone_internet": 11,
+    "fatura_cartao": 10,
+    "holerite": 9,
+    "impostos": 10,
     "nota_fiscal": 12,
     "boleto": 12,
     "contrato": 12,
@@ -93,6 +144,11 @@ ALVOS: dict[str, int] = {
 ROTULOS: dict[str, str] = {
     "conta_luz": "Conta de energia",
     "conta_agua": "Conta de água",
+    "conta_gas": "Conta de gás",
+    "telefone_internet": "Telefone e internet",
+    "fatura_cartao": "Fatura do cartão",
+    "holerite": "Holerite",
+    "impostos": "Impostos",
     "nota_fiscal": "Nota fiscal",
     "boleto": "Boleto",
     "contrato": "Contrato",
@@ -132,8 +188,27 @@ def _normalizar_mapeado(texto: str) -> tuple[str, list[int]]:
     saida: list[str] = []
     indices: list[int] = []
     espaco_pendente = False
+    pular_ate = -1
 
     for posicao, caractere in enumerate(texto):
+        if posicao < pular_ate:
+            continue
+        # Hifen invisivel (U+00AD), comum em PDF justificado: "con­sumo".
+        if unicodedata.category(caractere) == "Cf":
+            continue
+        # Hifen entre letras some: "NF-e" vira "nfe", e a palavra quebrada no
+        # fim da linha ("consu-\nmo") volta a ser uma so. Entre digitos fica:
+        # e separador de data.
+        if caractere == "-" and saida and saida[-1].isalpha() and not espaco_pendente:
+            seguinte = posicao + 1
+            quebra = False
+            while seguinte < len(texto) and texto[seguinte].isspace():
+                quebra = quebra or texto[seguinte] == "\n"
+                seguinte += 1
+            if seguinte < len(texto) and texto[seguinte].isalpha() and (quebra or seguinte == posicao + 1):
+                pular_ate = seguinte
+                continue
+
         decomposto = unicodedata.normalize("NFKD", caractere.lower())
         decomposto = "".join(c for c in decomposto if not unicodedata.combining(c))
         if not decomposto:
@@ -160,9 +235,19 @@ def normalizar(texto: str) -> str:
     return _normalizar_mapeado(texto)[0]
 
 
+# O OCR troca letras parecidas: "EQUATORlAL", "CEMlG", "C0NTA". Cada letra
+# destas no termo aceita as trocas tipicas no texto.
+_TROCAS_DE_OCR = {"i": "[il1]", "l": "[li1]", "o": "[o0]"}
+
+
+def tolerante(palavra: str) -> str:
+    """Regex de `palavra` que aceita as trocas de letra mais comuns do OCR."""
+    return "".join(_TROCAS_DE_OCR.get(c, re.escape(c)) for c in palavra)
+
+
 def _encontrar(termo: str, normalizado: str) -> re.Match | None:
     # \b evita que "agua" case dentro de "aguardando".
-    return re.search(rf"\b{re.escape(termo)}\b", normalizado)
+    return re.search(rf"\b{tolerante(termo)}\b", normalizado)
 
 
 def pontuar(texto: str) -> dict[str, int]:
@@ -217,9 +302,16 @@ def _virgula(numero: float) -> str:
     return f"{numero:.2f}".replace(".", ",")
 
 
+def _tem_termo_forte(categoria: str, normalizado: str) -> bool:
+    return any(peso >= PESO_FORTE and _encontrar(termo, normalizado) for termo, peso in REGRAS[categoria].items())
+
+
 def classificar(texto: str) -> Classificacao:
     """Classifica o documento e explica a decisao."""
     placar = pontuar(texto)
+    normalizado = normalizar(texto)
+    if "boleto" in placar and any(_tem_termo_forte(c, normalizado) for c in PAGOS_POR_BOLETO & placar.keys()):
+        del placar["boleto"]
 
     if not placar:
         return Classificacao(
@@ -249,6 +341,17 @@ def classificar(texto: str) -> Classificacao:
     alvo = ALVOS.get(categoria, sum(REGRAS[categoria].values()))
     confianca = _confianca(pontos, alvo, segunda_pontos)
     chaves = _chaves_encontradas(categoria, texto)
+
+    if not _tem_termo_forte(categoria, normalizado):
+        return Classificacao(
+            categoria=NAO_CLASSIFICADO,
+            confianca=0.0,
+            regra=(
+                f'"{categoria}" só tem termos fracos ({", ".join(chaves)}), '
+                f"que aparecem em quase todo documento — não dá para afirmar o tipo"
+            ),
+            chaves=chaves,
+        )
 
     disputa = (
         f"; segunda colocada: {segunda_categoria} com {segunda_pontos}"

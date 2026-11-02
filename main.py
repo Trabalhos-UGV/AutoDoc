@@ -16,7 +16,7 @@ import argparse
 import logging
 import sys
 
-from autodoc import __version__
+from autodoc import __version__, registro
 from autodoc.catalogo import Catalogo
 from autodoc.config import Config
 from autodoc.gestos import GestosIndisponiveis
@@ -80,7 +80,8 @@ def abrir_aplicativo(config: Config, catalogo: Catalogo, porta: int) -> int:
 
     print(f"AutoDoc v{__version__} — monitorando {config.pasta_entrada}")
     try:
-        janela.abrir(url, titulo="AutoDoc")
+        if janela.abrir(url, titulo="AutoDoc") == "navegador":
+            janela.manter_aberto()
     finally:
         servidor.parar()
     return 0
@@ -101,7 +102,7 @@ def controlar_por_gestos(camera: int, destro: bool, modo: str = "mouse") -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    registro.configurar()
 
     parser = montar_parser()
     args = parser.parse_args(argv)

@@ -41,6 +41,8 @@ NOME_CATALOGO = "catalogo.jsonl"
 # saber que `_Revisar/` nao e uma categoria.
 PASTA_REVISAO = "_Revisar"
 PASTA_DUPLICADOS = "_Duplicados"
+PASTA_NAO_SUPORTADOS = "_Nao_suportados"
+PASTA_AGUARDANDO_OCR = "_Aguardando_OCR"
 
 # Teto do texto guardado por ficha. Um PDF de centenas de paginas nao pode
 # transformar uma linha do catalogo em megabytes; o que passa disso nao muda a
@@ -70,6 +72,9 @@ class Ficha:
     etapas: list[dict[str, str]] = field(default_factory=list)
     origem: str = ""
     tamanho: int = 0
+    # A data que decidiu a pasta (o mes de referencia de uma conta, que pode
+    # nao ser a data mostrada, o vencimento). Vazia em ficha antiga.
+    data_pasta: str | None = None
     processado_em: str = ""
     id: int = 0
 
@@ -276,7 +281,7 @@ class Catalogo:
         # `_Duplicados/` fica de fora: e uma pilha de copias do que ja esta
         # arquivado, e nao parte do arquivo. Fichar o que esta la faria o mesmo
         # documento aparecer duas vezes na tela.
-        ignoradas = {PASTA_CATALOGO, PASTA_DUPLICADOS}
+        ignoradas = {PASTA_CATALOGO, PASTA_DUPLICADOS, PASTA_NAO_SUPORTADOS, PASTA_AGUARDANDO_OCR}
 
         achados = []
         for caminho in sorted(self.pasta_saida.rglob("*")):

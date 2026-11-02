@@ -32,6 +32,8 @@ class BaseInstalacao(unittest.TestCase):
             instalador, "CAMINHO_CONFIG", self.config_json))
         self.enterContext(mock.patch.object(
             modulo_config, "CAMINHO_CONFIG", self.config_json))
+        # Nem criar um venv dentro do projeto de quem roda os testes.
+        self.enterContext(mock.patch.object(instalador, "VENV", self.base / "venv"))
         # Nem criar atalho no sistema de quem roda os testes.
         self.enterContext(mock.patch.object(
             atalho, "criar",
@@ -177,7 +179,13 @@ class TestVerificarAmbiente(BaseInstalacao):
 
 class TestCriarAmbienteVirtual(BaseInstalacao):
     def test_venv_existente_nao_e_recriado(self):
-        with mock.patch.object(instalador.subprocess, "run") as rodou:
+        # Um venv falso numa pasta temporaria: o teste nao pode depender de o
+        # projeto de quem roda ter um venv/ — numa copia limpa nao tem.
+        python = self.base / "venv" / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        python.touch()
+        with mock.patch.object(instalador, "_python_do_venv", return_value=python), \
+             mock.patch.object(instalador.subprocess, "run") as rodou:
             linhas, detalhe = self.rodar_sem_pasta(instalador.criar_ambiente_virtual)
 
         rodou.assert_not_called()
@@ -342,8 +350,14 @@ class TestExecutarDeVerdade(BaseInstalacao):
 
     def test_a_instalacao_inteira_termina_com_a_pasta_gravada(self):
         # O pip e o venv de verdade levariam minutos e dependeriam de rede.
-        with mock.patch.object(instalador, "instalar_dependencias",
-                               lambda estado: iter(["pip dublado"])):
+        # A troca e feita em PASSOS: ele guardou as funcoes no import, entao
+        # dublar o nome no modulo nao alcanca o que executar() chama.
+        dublagens = {
+            instalador.criar_ambiente_virtual: lambda estado: iter(["venv dublado"]),
+            instalador.instalar_dependencias: lambda estado: iter(["pip dublado"]),
+        }
+        passos = [(titulo, dublagens.get(funcao, funcao)) for titulo, funcao in instalador.PASSOS]
+        with mock.patch.object(instalador, "PASSOS", passos):
             instalacao = instalador.Instalacao(self.escolhida)
             estados = list(instalacao.executar())
 

@@ -36,9 +36,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .. import __version__
-from ..catalogo import Catalogo
+from ..catalogo import PASTA_AGUARDANDO_OCR, PASTA_NAO_SUPORTADOS, Catalogo
 from ..gestos.lancador import Lancador
 from ..classificador import ROTULOS
+from ..extrator import diagnostico_ocr
 from ..monitor import criar_observador, processar_pendentes
 from ..pipeline import Pipeline
 
@@ -223,6 +224,20 @@ class Servidor:
             "todos": todos,
             "categorias": self._categorias(),
             "estatisticas": self.catalogo.estatisticas(),
+            "pendencias": self._pendencias(),
+        }
+
+    def _pendencias(self) -> dict:
+        """Arquivos que sairam da entrada sem virar documento, por motivo."""
+        def contar(nome: str) -> int:
+            pasta = self.config.pasta_saida / nome
+            if not pasta.is_dir():
+                return 0
+            return sum(1 for c in pasta.iterdir() if c.is_file() and not c.name.startswith("."))
+
+        return {
+            "aguardando_ocr": contar(PASTA_AGUARDANDO_OCR),
+            "nao_suportados": contar(PASTA_NAO_SUPORTADOS),
         }
 
     def _estado(self) -> dict:
@@ -233,6 +248,7 @@ class Servidor:
             "pasta_saida": str(self.config.pasta_saida),
             "busca": "índice interno",
             "backup": bool(self.config.pasta_backup),
+            "ocr": diagnostico_ocr(),
             # Para o seletor de correcao manual: o rotulo e o que a pessoa le,
             # a chave e o que o servidor entende.
             "categorias_possiveis": [
@@ -313,7 +329,7 @@ class Servidor:
         # colocado la a mao entra.
         self.catalogo.reconciliar(self.pipeline.analisar)
 
-        pendentes = processar_pendentes(self.pipeline)
+        pendentes = processar_pendentes(self.pipeline, ao_processar=self._anunciar)
         if pendentes:
             logger.info("%d documento(s) que ja estavam na pasta", pendentes)
 

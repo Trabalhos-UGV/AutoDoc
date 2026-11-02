@@ -8,9 +8,11 @@ from pathlib import Path
 from autodoc.classificador import (
     LIMIAR,
     NAO_CLASSIFICADO,
+    ROTULOS,
     classificar,
     normalizar,
     pontuar,
+    tolerante,
 )
 
 EXEMPLOS = Path(__file__).resolve().parent.parent / "exemplos"
@@ -84,7 +86,7 @@ class TestDuvida(unittest.TestCase):
         """Um termo leve e solto nao sustenta uma categoria."""
         resultado = classificar("consumo")
         self.assertEqual(resultado.categoria, NAO_CLASSIFICADO)
-        self.assertIn("limiar", resultado.regra)
+        self.assertIn("termos fracos", resultado.regra)
 
     def test_confianca_nunca_chega_a_certeza_absoluta(self):
         texto = (EXEMPLOS / "nota_fiscal_1234.txt").read_text(encoding="utf-8")
@@ -119,6 +121,61 @@ class TestFronteiraDePalavra(unittest.TestCase):
 
     def test_acento_grudado_na_letra_tambem_some(self):
         self.assertEqual(normalizar("a\u0301gua"), "agua")
+
+
+class TestTermosFracos(unittest.TestCase):
+    """Pix, CPF e vencimento estao em quase tudo: sozinhos, nao dizem o tipo."""
+
+    def test_so_termo_fraco_vai_para_revisao(self):
+        resultado = classificar("Cadastre sua chave Pix no aplicativo")
+        self.assertEqual(resultado.categoria, NAO_CLASSIFICADO)
+        self.assertIn("termos fracos", resultado.regra)
+
+    def test_termo_forte_com_fraco_classifica(self):
+        self.assertEqual(classificar("Comprovante  ID da transacao 1  Pix").categoria, "comprovante")
+
+
+class TestNormalizacaoDeOcr(unittest.TestCase):
+    def test_hifen_entre_letras_some(self):
+        self.assertEqual(normalizar("NF-e"), "nfe")
+        self.assertEqual(normalizar("12-03-2026"), "12-03-2026")
+
+    def test_palavra_quebrada_no_fim_da_linha(self):
+        self.assertEqual(normalizar("consu-\nmo fatu-\n  rado"), "consumo faturado")
+
+    def test_hifen_com_espaco_e_separador(self):
+        self.assertEqual(normalizar("Copel - Paraná"), "copel - parana")
+        self.assertEqual(normalizar("ponta- grossa"), "ponta- grossa")
+
+    def test_hifen_invisivel(self):
+        self.assertEqual(normalizar("con\u00adsumo"), "consumo")
+
+    def test_letras_trocadas_pelo_ocr(self):
+        self.assertEqual(classificar("CEMlG C0NSUMO FATURADO 214 kWh").categoria, "conta_luz")
+        self.assertRegex("cemlg", tolerante("cemig"))
+        self.assertNotRegex("cemag", tolerante("cemig"))
+
+
+class TestCategoriasNovas(unittest.TestCase):
+    def test_cada_uma(self):
+        for texto, categoria in (
+            ("CONTRACHEQUE  Salario base 3.000  Liquido a receber 2.700", "holerite"),
+            ("Fatura do cartao  Total da fatura 900  Pagamento minimo 150", "fatura_cartao"),
+            ("Prefeitura  IPTU 2026  Inscricao imobiliaria 01.02", "impostos"),
+            ("Vivo  Telefonica Brasil  Plano Fibra  telecomunicacao", "telefone_internet"),
+            ("Comgas  Conta de gas canalizado  Consumo 12 m3", "conta_gas"),
+        ):
+            with self.subTest(categoria=categoria):
+                self.assertEqual(classificar(texto).categoria, categoria)
+                self.assertIn(categoria, ROTULOS)
+
+    def test_boleto_de_verdade_continua_boleto(self):
+        texto = "Boleto  Beneficiario Escola  Nosso numero 1  Linha digitavel 2379  Vencimento 10/05/2026"
+        self.assertEqual(classificar(texto).categoria, "boleto")
+
+    def test_fatura_com_linha_digitavel_nao_vira_boleto(self):
+        texto = "Fatura do cartao  Total da fatura 900  Pague com boleto: linha digitavel 2609"
+        self.assertEqual(classificar(texto).categoria, "fatura_cartao")
 
 
 if __name__ == "__main__":

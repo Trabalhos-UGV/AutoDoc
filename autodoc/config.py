@@ -11,13 +11,18 @@ configurar onde ficam os dados.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .extrator import EXTENSOES_SUPORTADAS
 
 RAIZ = Path(__file__).resolve().parent.parent
 CAMINHO_CONFIG = RAIZ / "config.json"
 
 NOME_SAIDA = "organizados"
+
+logger = logging.getLogger(__name__)
 
 
 def pasta_documentos() -> Path:
@@ -38,6 +43,27 @@ def entrada_padrao() -> Path:
     return pasta_documentos() / "AutoDoc" / "entrada"
 
 
+def problema_da_pasta(pasta: Path) -> str | None:
+    """Por que esta pasta nao pode ser vigiada — ou None, se pode.
+
+    O AutoDoc tira da pasta vigiada tudo o que aparece nela, subpastas
+    inclusive. Apontado para a pasta do proprio programa, ele "organizava" os
+    arquivos de exemplo do repositorio a cada abertura — foi o que esvaziou
+    `exemplos/` nesta maquina. Apontado para a pasta pessoal ou para Documentos
+    inteira, levaria embora arquivos que ninguem pediu para organizar.
+    """
+    pasta = Path(pasta).expanduser().resolve()
+    if pasta == RAIZ or RAIZ in pasta.parents:
+        return "fica dentro da pasta do próprio AutoDoc — escolha uma pasta só para os documentos"
+
+    casa = Path.home().resolve()
+    if pasta == casa or pasta in casa.parents:
+        return "é a pasta pessoal inteira — escolha uma pasta só para os documentos"
+    if pasta == pasta_documentos().resolve():
+        return "é a pasta Documentos inteira — escolha uma subpasta dela"
+    return None
+
+
 @dataclass
 class Config:
     """Opcoes de execucao do AutoDoc."""
@@ -53,8 +79,8 @@ class Config:
     # Pasta sincronizada (Drive/OneDrive) para backup. Opcional.
     pasta_backup: Path | None = None
 
-    # Extensoes aceitas pelo monitorador.
-    extensoes: tuple[str, ...] = (".pdf", ".png", ".jpg", ".jpeg", ".txt")
+    # Extensoes aceitas pelo monitorador: tudo o que o extrator sabe ler.
+    extensoes: tuple[str, ...] = tuple(sorted(EXTENSOES_SUPORTADAS))
 
     def __post_init__(self) -> None:
         self.pasta_entrada = Path(self.pasta_entrada).expanduser()
@@ -91,8 +117,22 @@ class Config:
         if dados.get("pasta_entrada") and not dados.get("pasta_saida"):
             config.pasta_saida = config.saida_ao_lado()
 
+        # Uma pasta que nao pode ser vigiada, gravada por uma versao que ainda
+        # nao recusava, volta para o padrao — junto com a saida, que andava com
+        # ela. O arquivo nao e reescrito: quem decide a pasta e o instalador.
+        problema = problema_da_pasta(config.pasta_entrada)
+        if problema:
+            logger.warning("pasta monitorada %s recusada: %s; usando %s",
+                           config.pasta_entrada, problema, entrada_padrao())
+            config.pasta_entrada = entrada_padrao()
+            config.pasta_saida = config.saida_ao_lado()
+
+        # As gravadas somam as padroes, e nao as substituem: um config.json
+        # gravado quando so havia cinco formatos deixaria a foto .heic e o
+        # .tiff do scanner parados na entrada para sempre.
         if dados.get("extensoes"):
-            config.extensoes = tuple(e.lower() for e in dados["extensoes"])
+            gravadas = (e.lower() for e in dados["extensoes"])
+            config.extensoes = tuple(dict.fromkeys([*config.extensoes, *gravadas]))
 
         # Um `banco` de uma versao antiga e lido e ignorado de proposito: nao
         # ha mais banco, e recusar o arquivo por causa dele seria pior.

@@ -10,10 +10,16 @@ from unittest import mock
 from pathlib import Path
 
 from autodoc import pipeline as pipeline_modulo
-from autodoc.catalogo import PASTA_DUPLICADOS, PASTA_REVISAO, Catalogo
+from autodoc.catalogo import (
+    PASTA_AGUARDANDO_OCR,
+    PASTA_DUPLICADOS,
+    PASTA_NAO_SUPORTADOS,
+    PASTA_REVISAO,
+    Catalogo,
+)
 from autodoc.classificador import NAO_CLASSIFICADO
 from autodoc.config import Config
-from autodoc.extrator import ExtracaoIndisponivel
+from autodoc.extrator import ExtracaoIndisponivel, OcrIndisponivel
 from autodoc.pipeline import Pipeline
 
 EXEMPLOS = Path(__file__).resolve().parent.parent / "exemplos"
@@ -94,13 +100,19 @@ class TestArquivamento(BasePipeline):
         self.assertEqual(segundo.destino.name, "conta_energia_marco (2).txt")
         self.assertTrue(primeiro.destino.exists(), "o primeiro nao pode ter sumido")
 
-    def test_extensao_fora_da_lista_e_ignorada(self):
+    def test_formato_nao_suportado_sai_da_entrada_para_pasta_propria(self):
+        """Deixado na entrada, ficava la para sempre sem ninguem saber por que."""
         alvo = self.config.pasta_entrada / "planilha.xlsx"
         alvo.write_text("qualquer coisa", encoding="utf-8")
 
         resultado = self.pipeline.processar(alvo)
         self.assertFalse(resultado.sucesso)
-        self.assertTrue(alvo.exists(), "o que nao e monitorado fica onde esta")
+        self.assertEqual(resultado.ignorado, "formato nao suportado")
+        self.assertFalse(alvo.exists())
+        self.assertEqual(resultado.destino,
+                         self.config.pasta_saida / PASTA_NAO_SUPORTADOS / "planilha.xlsx")
+        self.assertEqual(self.catalogo.arquivos_no_disco(), [],
+                         "o que nao foi lido nao e documento do arquivo")
 
 
 class TestTodosOsExemplos(BasePipeline):
@@ -181,9 +193,11 @@ class TestExplicacao(BasePipeline):
     def test_guarda_a_origem_do_texto(self):
         self.assertEqual(self.ficha.origem, "arquivo de texto")
 
-    def test_a_data_vem_do_rotulo_de_vencimento(self):
+    def test_mostra_o_vencimento_e_arquiva_pelo_mes_de_referencia(self):
+        """A tela mostra a data escrita (vencimento); a pasta é a do mês da conta."""
         self.assertEqual(self.ficha.data_documento, "2026-03-12")
-        self.assertIn("vencimento", self.ficha.etapas[3]["detalhe"])
+        self.assertEqual(self.ficha.data_pasta, "2026-03-01")
+        self.assertIn("mês de referência", self.ficha.etapas[3]["detalhe"])
 
 
 class TestCorrecaoManual(BasePipeline):
@@ -302,6 +316,45 @@ class TestFalhasAoMover(BasePipeline):
              self.assertLogs("autodoc.pipeline", "WARNING"):
             self.assertIsNone(self.pipeline._recolher(alvo, "_Duplicados"))
 
+    def test_arquivo_travado_fica_na_entrada_para_nova_tentativa(self):
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+
+        with mock.patch.object(pipeline_modulo.shutil, "move",
+                               side_effect=PermissionError("em uso por outro programa")), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            resultado = self.pipeline.processar(alvo)
+
+        self.assertFalse(resultado.sucesso)
+        self.assertIn("mover", resultado.ignorado)
+        self.assertTrue(alvo.exists())
+        self.assertEqual(len(self.catalogo), 0, "nada pode ser fichado sem ter sido movido")
+
+        # na proxima tentativa, ja destravado, ele vai
+        self.assertTrue(self.pipeline.processar(alvo).sucesso)
+
+    def test_copia_que_ficou_no_destino_e_desfeita(self):
+        """Entre volumes o move copia e depois apaga; se apagar falha, a copia
+        no destino faria a proxima tentativa virar "nome (2)"."""
+        alvo = self.largar_exemplo("conta_energia_marco.txt")
+
+        def copia_e_falha(origem, destino):
+            shutil.copy2(origem, destino)
+            raise PermissionError("origem em uso")
+
+        with mock.patch.object(pipeline_modulo.shutil, "move", copia_e_falha), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            self.pipeline.processar(alvo)
+
+        self.assertTrue(alvo.exists())
+        saida = self.config.pasta_saida
+        self.assertEqual([c for c in saida.rglob("*.txt")], [])
+
+    def test_arquivo_que_ja_saiu_da_pasta_nao_e_processado(self):
+        """O watchdog e a varredura acharam o mesmo arquivo; o segundo chega tarde."""
+        resultado = self.pipeline.processar(self.config.pasta_entrada / "ja-foi.txt")
+        self.assertFalse(resultado.sucesso)
+        self.assertIn("nao esta mais", resultado.ignorado)
+
     def test_arquivo_ilegivel_no_hash_e_avisado(self):
         alvo = self.largar_exemplo("conta_energia_marco.txt")
 
@@ -324,6 +377,40 @@ class TestFalhasAoMover(BasePipeline):
 
         # a ficha acompanha a decisão mesmo sem o arquivo
         self.assertEqual(corrigida.categoria, "contrato")
+
+
+class TestSemOcr(BasePipeline):
+    """Foto boa numa maquina sem Tesseract: espera o OCR, nao vai para a revisao."""
+
+    def processar_sem_ocr(self, alvo):
+        with mock.patch.object(pipeline_modulo, "extrair_com_origem",
+                               side_effect=OcrIndisponivel("Tesseract nao esta instalado")), \
+             self.assertLogs("autodoc.pipeline", "WARNING"):
+            return self.pipeline.processar(alvo)
+
+    def test_vai_para_a_pasta_de_espera_sem_ficha(self):
+        resultado = self.processar_sem_ocr(self.largar_exemplo("conta_energia_marco.txt"))
+
+        self.assertFalse(resultado.sucesso)
+        self.assertEqual(resultado.ignorado, "aguardando OCR")
+        self.assertEqual(resultado.destino.parent.name, PASTA_AGUARDANDO_OCR)
+        self.assertTrue(self.entrada_vazia)
+        self.assertEqual(len(self.catalogo), 0)
+
+    def test_quem_ja_esperava_nao_e_renomeado(self):
+        primeiro = self.processar_sem_ocr(self.largar_exemplo("conta_energia_marco.txt"))
+        de_novo = self.processar_sem_ocr(primeiro.destino)
+
+        self.assertEqual(de_novo.destino, primeiro.destino)
+        self.assertTrue(primeiro.destino.exists())
+
+    def test_com_ocr_sai_da_espera_e_e_arquivado(self):
+        esperando = self.processar_sem_ocr(self.largar_exemplo("conta_energia_marco.txt")).destino
+        resultado = self.pipeline.processar(esperando)
+
+        self.assertTrue(resultado.sucesso)
+        self.assertEqual(resultado.categoria, "conta_luz")
+        self.assertFalse(esperando.exists())
 
 
 class TestDocumentoIlegivel(BasePipeline):
