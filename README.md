@@ -144,9 +144,11 @@ Por padrão são aceitos `.pdf`, `.txt`, `.md`, `.csv` e as imagens `.png`,
 `extensoes` do arquivo **somam** a essas, não as substituem — um `config.json`
 gravado quando só havia cinco formatos deixaria a foto do iPhone parada.
 
+O AutoDoc só mexe no que está **solto no primeiro nível** da pasta vigiada e
+num formato que ele lê. Subpasta, aplicativo (`.app`), projeto, `.zip`, `.dmg`
+e atalho ficam exatamente onde estão — dá para vigiar até a pasta de Downloads.
 A pasta vigiada não pode ser a do próprio AutoDoc, a pasta pessoal inteira nem
-a pasta Documentos inteira: o AutoDoc leva embora tudo o que aparece na pasta
-vigiada, subpastas inclusive. O instalador recusa essas escolhas, e um
+a pasta Documentos inteira. O instalador recusa essas escolhas, e um
 `config.json` antigo que aponte para uma delas faz o programa voltar ao padrão.
 
 Sem `config.json`, o AutoDoc vigia `~/Documentos/AutoDoc/entrada` — fora do
@@ -183,11 +185,12 @@ Tudo dentro da pasta organizada:
 organizados/
   conta_luz/2026/03/conta_energia_marco.txt   <- o documento, que é o que importa
   contrato/sem-data/contrato.pdf               <- classificado, mas sem data no texto
+  imagens/2025/12/praia.jpg                    <- não é documento: identificada pelo tipo
   _Revisar/scan0031.txt                        <- o que não deu para classificar
   _Aguardando_OCR/foto.jpg                     <- foto lida numa máquina sem OCR
-  _Nao_suportados/planilha.xlsx                <- formato que o AutoDoc não lê
   _Duplicados/                                 <- cópias do que já estava arquivado
   .autodoc/catalogo.jsonl                      <- as fichas; refazíveis a qualquer momento
+  .autodoc/movimentos.jsonl                    <- de onde veio cada arquivo movido
 ```
 
 Não há banco de dados. A pasta é a verdade e o catálogo é só um caderno de
@@ -208,7 +211,7 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 853 testes, ~23 segundos
+python -m unittest discover -s testes     # 889 testes, ~23 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
@@ -217,14 +220,14 @@ AutoDoc já pede, e cada um trabalha numa pasta temporária própria.
 
 | Arquivo | O que cobre |
 | --- | --- |
-| `test_documentos_reais.py` | **o critério de pronto**: 53 documentos como saem de verdade (PDF, OCR com hífen e letra trocada, tabela), cada um conferido na pasta onde foi parar no disco |
+| `test_documentos_reais.py` | **o critério de pronto**: 62 documentos como saem de verdade (PDF, OCR com hífen e letra trocada, tabela), cada um conferido na pasta onde foi parar no disco |
 | `test_classificador.py` | categorias, confiança, limiar, empate, termos fracos e normalização de OCR |
 | `test_datas.py` | os formatos, ano plausível, mês de referência, dono da data, tabela e a regra de cada tipo |
 | `test_catalogo.py` | fichas, dedupe por conteúdo, busca por prefixo e sem acento |
 | `test_reconciliacao.py` | a pasta como verdade: catálogo apagado, arquivo apagado, arquivo posto à mão |
 | `test_pipeline.py` | o caminho completo do documento, dedupe, correção manual e documento ilegível |
 | `test_extrator.py` | texto, PDF, OCR de digitalizado e as dependências opcionais ausentes |
-| `test_monitor.py` | arquivos ignorados, espera pela cópia, subpastas, varredura periódica e a espera pelo OCR |
+| `test_monitor.py` | arquivos ignorados, espera pela cópia, só o primeiro nível (subpasta, `.app`, `.zip` e atalho intocados), varredura periódica e a espera pelo OCR |
 | `test_servidor.py` | a API das telas, o fluxo de eventos e a porta ocupada |
 | `test_instalacao.py` | as seis etapas e a pasta escolhida chegando ao `config.json` |
 | `test_instalador_servidor.py` | o estado do instalador gráfico e as rotas dele |
@@ -234,10 +237,10 @@ AutoDoc já pede, e cada um trabalha numa pasta temporária própria.
 | `test_main.py` | a linha de comando inteira |
 | `test_registro.py` | o registro em arquivo, no lugar de cada sistema |
 
-**A cobertura é de 100% das linhas** (4529 de 4536). As sete que faltam ficam de
+**A cobertura é de 100% das linhas** (4655 de 4661). As seis que faltam ficam de
 fora por motivo, e não por esquecimento:
 
-- quatro caminhos **só do Windows** (`%APPDATA%`, `venv\Scripts\`) — não dá
+- três caminhos **só do Windows** (`%APPDATA%`, `venv\Scripts\`) — não dá
   para exercitá-los no macOS, e fingir que dá seria pior;
 - os três `if __name__ == "__main__"`.
 
@@ -450,15 +453,15 @@ main.py             # interface de linha de comando
 
 ### Como o documento é processado
 
-1. **Detecção** — o `monitor` percebe o arquivo novo, inclusive dentro de subpastas, e espera a cópia terminar: tamanho e data de modificação parados e o arquivo abrindo para leitura. O que não ficou pronto a tempo, ou não pôde ser movido, fica na entrada e é tentado de novo pela varredura que roda a cada 30 segundos.
+1. **Detecção** — o `monitor` percebe o arquivo novo solto na pasta vigiada (nunca dentro de subpastas) e espera a cópia terminar: tamanho e data de modificação parados e o arquivo abrindo para leitura. O que não ficou pronto a tempo, ou não pôde ser movido, fica na entrada e é tentado de novo pela varredura que roda a cada 30 segundos.
 2. **Deduplicação** — o hash SHA-256 do conteúdo é comparado com o catálogo; se aquele documento já foi arquivado, a cópia vai para `organizados/_Duplicados/` em vez de ser processada de novo.
 3. **Extração** — o texto é lido direto (`.txt`), da camada de texto do PDF, ou via OCR. No PDF a decisão é **por página**: a página com pouco texto passa pelo OCR, e um contrato digitado com a página assinada escaneada é lido inteiro. Antes do OCR a foto é endireitada pelo EXIF, passada para tons de cinza e ampliada se for pequena.
 4. **Classificação** — cada categoria pontua conforme as palavras-chave encontradas, e o resultado vira uma **confiança de 0 a 1**. Abaixo de 0,60 o documento não é classificado. Também não é classificado o que só tem termos fracos — "Pix", "CPF", "vencimento" aparecem em quase tudo e, sozinhos, não dizem o tipo.
 5. **Data** — a data que define a pasta depende do tipo de documento (tabela abaixo). Cada data é atribuída ao rótulo mais próximo antes dela, e uma tabela com os rótulos numa linha e as datas na de baixo é pareada pela ordem. Sem data no texto, o documento vai para `sem-data/` — **nunca** para o mês em que o arquivo foi baixado.
-6. **Arquivamento** — o arquivo vai para `organizados/<categoria>/<ano>/<mês>/`, sem sobrescrever homônimos. O que ficou abaixo do limiar vai para `organizados/_Revisar/`.
+6. **Arquivamento** — o arquivo vai para `organizados/<categoria>/<ano>/<mês>/`, sem sobrescrever homônimos, e o movimento fica anotado em `.autodoc/movimentos.jsonl`. O que ficou abaixo do limiar vai para `organizados/_Revisar/`.
 7. **Ficha e backup** — metadados, texto e a explicação da classificação viram uma ficha em `organizados/.autodoc/catalogo.jsonl`; se configurado, uma cópia vai para a pasta de backup.
 
-O que não pôde ser lido — PDF corrompido, imagem ilegível — também sai da pasta de entrada e vai para `_Revisar/`, com o motivo escrito no trajeto. Uma foto boa numa máquina **sem OCR** não é ilegível: vai para `_Aguardando_OCR/` e volta ao processamento sozinha quando o OCR existir. Formato que o AutoDoc não lê vai para `_Nao_suportados/`. A tela avisa quantos arquivos estão em cada uma dessas pastas — um arquivo deixado para trás sem aviso é um arquivo que ninguém acha.
+O que não pôde ser lido — PDF corrompido, imagem ilegível — também sai da pasta de entrada e vai para `_Revisar/`, com o motivo escrito no trajeto. Uma foto boa numa máquina **sem OCR** não é ilegível: vai para `_Aguardando_OCR/` e volta ao processamento sozinha quando o OCR existir. Formato que o AutoDoc não lê fica onde está: não é documento, e não cabe a ele tirar do lugar. A tela avisa quantos arquivos esperam o OCR — um arquivo deixado para trás sem aviso é um arquivo que ninguém acha.
 
 | Tipo | Data que define a pasta, em ordem |
 | --- | --- |
@@ -478,8 +481,17 @@ ano que vem; acima disso é 19xx ("15/08/98" é 1998, não 2098).
 
 `conta_luz`, `conta_agua`, `conta_gas`, `telefone_internet`, `fatura_cartao`,
 `holerite`, `impostos`, `nota_fiscal`, `boleto`, `contrato`, `comprovante` e
-`documento_pessoal`. O que não atinge o limiar de confiança vira
-`nao_classificado` e vai para revisão manual.
+`documento_pessoal`; e, para o que chega numa pasta de Downloads sem ser conta,
+`certificado`, `estudos`, `manual_tecnico`, `licenca`, `informativo` e
+`documentacao`. **O nome do arquivo também conta**: "certificado-3497633.pdf"
+e "License.txt" já dizem o que são.
+
+O que não é documento é identificado **pelo tipo de arquivo**: imagem sem texto
+de documento vai para `imagens/` (com "ícone ou elemento de interface (16×16)"
+ou "foto ou imagem (3840×2160)" na explicação, e a data de captura do EXIF), e
+texto de uma linha só, como "8.0.29", vai para `textos/`. A revisão manual
+(`_Revisar/`) fica para o ambíguo de verdade: o que pontuou em alguma regra sem
+atingir o limiar de confiança. Ali errar a categoria é pior do que perguntar.
 
 Fatura do cartão, imposto e conta de consumo também trazem linha digitável;
 quando um desses tipos tem um termo forte, ele ganha de `boleto`.
@@ -529,9 +541,12 @@ Além do escopo original da proposta, esta base inclui:
 - **Cinco categorias além das da proposta**: holerite, fatura do cartão, impostos (IPTU, IPVA, DAS, DARF), telefone e internet, e conta de gás.
 - **Data da pasta pelo tipo de documento**, com mês de referência para as contas mensais, ano de dois dígitos plausível, leitura de tabela e tolerância às trocas do OCR (`O`↔`0`, `l`↔`1`).
 - **Leitura tolerante ao OCR** no classificador: hífen de fim de linha, hífen invisível e letras trocadas ("CEMlG" é CEMIG).
-- **Corpus de 53 documentos reais** como critério de pronto, cada um conferido na pasta onde foi parar no disco.
+- **Corpus de 62 documentos reais** como critério de pronto, cada um conferido na pasta onde foi parar no disco.
 - **O arquivo sempre chega**: espera pela cópia terminar sem processar pela metade, nova tentativa para o arquivo travado e varredura da entrada a cada 30 segundos.
-- **Subpastas e mais formatos**: `.tif`, `.webp` e `.heic` do iPhone; o que não for lido vai para `_Nao_suportados/` em vez de ficar parado.
+- **Mais formatos**: `.tif`, `.webp` e `.heic` do iPhone; texto em UTF-16 (Excel, Bloco de Notas) e cp1252 lido com os acentos.
+- **Seis categorias além das contas** (certificado, estudos, manual técnico, licença, informativo, documentação), o nome do arquivo como evidência, e imagem e texto solto identificados pelo tipo em vez de irem para a revisão.
+- **Só o primeiro nível da pasta vigiada**: subpasta, aplicativo, projeto e formato que o AutoDoc não lê ficam onde estão.
+- **Diário de movimentos** (`.autodoc/movimentos.jsonl`): de onde veio cada arquivo que o AutoDoc tirou do lugar.
 - **Diagnóstico do OCR na tela**, com o comando de instalação de cada sistema, e fotos esperando o OCR em vez de irem para a revisão.
 - **OCR por página**, com a foto endireitada pelo EXIF e ampliada antes de ler.
 - **Instalação num comando só**: o `instalar.py` descobre o sistema e instala o Tesseract com o português (Homebrew, gerenciador da distribuição ou winget) e, no Linux, o motor da janela.
