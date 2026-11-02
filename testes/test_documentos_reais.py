@@ -216,6 +216,24 @@ Vencimento 05/02/2026"""),
     ("holerite_ocr.txt", "holerite/2026/02", "C0NTRACHEQUE  Empresa Z  C0mpetencia 02/2026  Liquid0 a receber 1.900,00"),
     ("receita_medica.txt", "_Revisar", "Receituario  Paciente Fulano  Amoxicilina 500mg 1 comprimido de 8/8h  15/03/2026"),
     ("rodape_so_pix.txt", "_Revisar", "Pague com Pix usando a chave pix CNPJ 12.345.678/0001-90"),
+    # ----------------------- o que chega numa pasta de Downloads (uso real, 02/11)
+    ("certificado-1234567.txt", "certificado/sem-data", """Aluno(a): Fulano de Tal  Curso ministrado por: Ciclano
+Carga horaria: 10  Conteudo Programatico:
+E com grande satisfacao que certificamos que o aluno concluiu com exito o curso de Logica de Programacao."""),
+    ("exercicios_aula_3.txt", "estudos/sem-data", """Exercicios em sala · Aula 3 — Padroes de Projeto
+Como rodar: javac *.java  java Main  Exercicio 1 · Quem e de quem"""),
+    ("plano_marketing.txt", "estudos/sem-data", """VERDEBOX Mini Plano de Marketing | Os 4 Ps aplicados  Atividade em Grupo • Marketing
+Preco: tres planos. Pix, cartao de credito, boleto e plano anual com 15% off.
+VerdeBox atividade dos 4 Ps do marketing"""),
+    ("montagem_robo.txt", "manual_tecnico/sem-data", """NM ROBOTICS EYEMECH 3.2 PARTS, TOOLS AND REQUIREMENTS
+The design can be entirely 3D printed. Assembly is relatively easy."""),
+    ("posicoes_pcb.txt", "manual_tecnico/sem-data", "Designator\tDevice\tFootprint\tMid X\tMid Y\n\"D1\"\t\"MBR120\"\t\"SOD-123\""),
+    ("License.txt", "licenca/sem-data", "This work is licensed under https://creativecommons.org/licenses/by-nc-sa/4.0/"),
+    ("folder_lgpd.txt", "informativo/sem-data", """CAMPANHA DE CONSCIENTIZACAO  LGPD · LEI N 13.709/2018
+SEUS DADOS, SUAS REGRAS.  COMO SE PROTEGER  Senha longa vence senha complicada"""),
+    ("LEIAME.txt", "documentacao/sem-data", """PACOTE DE INSTALACAO  CONTEUDO DESTE ZIP
+COMO IMPORTAR — escolha um dos caminhos  Instalacao manual: copie a pasta"""),
+    ("mono-version.txt", "textos/sem-data", "8.0.29"),
     # ------------------------------------------------------- nao e de ninguem
     ("carta_banco_pix.txt", "_Revisar", """Prezado cliente, informamos que sua conta foi atualizada.
 Para receber valores, cadastre sua chave Pix no aplicativo. Atenciosamente, Banco X. 10/03/2026"""),

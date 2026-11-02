@@ -518,5 +518,94 @@ class TestAnalisar(BasePipeline):
         self.assertIn("nao foi possivel ler", ficha.origem)
 
 
+class TestIdentificadoPeloTipo(BasePipeline):
+    """O que nao e documento sai identificado, e nao em `_Revisar/` com 0%."""
+
+    def imagem(self, nome: str, tamanho: tuple[int, int], capturada: str | None = None) -> Path:
+        from PIL import Image
+
+        alvo = self.config.pasta_entrada / nome
+        exif = Image.Exif()
+        if capturada:
+            exif.get_ifd(0x8769)[36867] = capturada
+        Image.new("RGB", tamanho, "white").save(alvo, exif=exif)
+        return alvo
+
+    def processar_com_ocr(self, alvo: Path, lido: str):
+        with mock.patch.object(pipeline_modulo, "extrair_com_origem",
+                               return_value=(lido, "imagem — OCR")):
+            return self.pipeline.processar(alvo)
+
+    def pasta_de(self, resultado) -> str:
+        return resultado.destino.parent.relative_to(self.config.pasta_saida).as_posix()
+
+    def test_icone_sem_texto(self):
+        resultado = self.processar_com_ocr(self.imagem("botao.jpg", (16, 16)), "")
+
+        self.assertEqual(self.pasta_de(resultado), "imagens/sem-data")
+        self.assertIn("ícone ou elemento de interface (16×16)", resultado.documento.regra)
+        self.assertEqual(resultado.documento.confianca, 1.0)
+
+    def test_foto_vai_para_o_mes_da_captura(self):
+        alvo = self.imagem("praia.jpg", (1600, 900), "2025:12:24 18:30:00")
+        resultado = self.processar_com_ocr(alvo, "a 7 ~~")
+
+        self.assertEqual(self.pasta_de(resultado), "imagens/2025/12")
+        self.assertIn("foto ou imagem (1600×900)", resultado.documento.regra)
+        self.assertIn("EXIF", resultado.etapas[3]["detalhe"])
+
+    def test_imagem_que_o_pillow_nao_mede(self):
+        alvo = self.config.pasta_entrada / "estranha.png"
+        alvo.write_bytes(b"nada")
+        resultado = self.processar_com_ocr(alvo, "")
+
+        self.assertEqual(self.pasta_de(resultado), "imagens/sem-data")
+        self.assertTrue(resultado.documento.regra.startswith("imagem, sem texto"))
+
+    def test_foto_de_conta_continua_conta(self):
+        alvo = self.imagem("conta.jpg", (1600, 1200))
+        resultado = self.processar_com_ocr(alvo, (EXEMPLOS / "conta_energia_marco.txt").read_text(encoding="utf-8"))
+
+        self.assertEqual(resultado.categoria, "conta_luz")
+
+    def test_foto_com_termo_fraco_e_duvida_de_verdade(self):
+        resultado = self.processar_com_ocr(self.imagem("tela.jpg", (800, 600)), "pague com pix")
+
+        self.assertEqual(self.pasta_de(resultado), PASTA_REVISAO)
+
+    def test_arquivo_de_versao(self):
+        alvo = self.config.pasta_entrada / "mono-version.txt"
+        alvo.write_text("8.0.29\n", encoding="utf-8")
+        resultado = self.pipeline.processar(alvo)
+
+        self.assertEqual(self.pasta_de(resultado), "textos/sem-data")
+        self.assertIn('("8.0.29")', resultado.documento.regra)
+
+    def test_texto_com_frase_nao_identificada_vai_para_revisao(self):
+        alvo = self.config.pasta_entrada / "lista.txt"
+        alvo.write_text("arroz, feijao, cafe", encoding="utf-8")
+
+        self.assertEqual(self.pasta_de(self.pipeline.processar(alvo)), PASTA_REVISAO)
+
+    def test_texto_vazio_vai_para_revisao(self):
+        alvo = self.config.pasta_entrada / "vazio.txt"
+        alvo.write_text("   \n", encoding="utf-8")
+
+        self.assertEqual(self.pasta_de(self.pipeline.processar(alvo)), PASTA_REVISAO)
+
+    def test_releitura_tambem_identifica(self):
+        pasta = self.config.pasta_saida / "imagens" / "sem-data"
+        pasta.mkdir(parents=True)
+        alvo = pasta / "logo.jpg"
+        from PIL import Image
+        Image.new("RGB", (64, 64)).save(alvo)
+
+        with mock.patch.object(pipeline_modulo, "extrair_com_origem", return_value=("", "imagem — OCR")):
+            ficha = self.pipeline.analisar(alvo)
+
+        self.assertEqual(ficha.categoria, "imagens")
+        self.assertEqual(ficha.data_pasta, None)
+
+
 if __name__ == "__main__":
     unittest.main()
