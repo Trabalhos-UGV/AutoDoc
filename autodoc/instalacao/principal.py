@@ -18,9 +18,9 @@ from functools import partial
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .. import __version__
+from .. import __version__, registro
 from ..catalogo import Catalogo
-from ..config import Config
+from ..config import Config, problema_da_pasta
 from ..pipeline import Pipeline
 from ..web import janela
 from ..web.servidor import ESTATICO, Rotas, ServidorHTTP
@@ -34,6 +34,10 @@ PORTA = 8756
 # A janela nativa, guardada para conseguir abrir o seletor de pastas do sistema
 # a partir das threads que atendem a API.
 _janela = None
+
+
+class PastaRecusada(ValueError):
+    """A pasta escolhida nao pode ser vigiada (ver `problema_da_pasta`)."""
 
 
 class Instalador:
@@ -76,6 +80,9 @@ class Instalador:
         """Comeca a instalacao numa thread, para a tela nao congelar."""
         if pasta_entrada:
             self._apontar(Path(pasta_entrada).expanduser())
+        problema = problema_da_pasta(self.pasta_entrada)
+        if problema:
+            raise PastaRecusada(problema)
 
         if self.instalacao and not self.instalacao.concluido:
             return  # ja esta rodando
@@ -96,6 +103,10 @@ class Instalador:
         errado, com a tela mostrando o certo. Era o defeito que fazia a janela
         abrir vazia depois de apontar para uma pasta pessoal.
         """
+        problema = problema_da_pasta(pasta_entrada)
+        if problema:
+            raise PastaRecusada(problema)
+
         self.pasta_entrada = pasta_entrada
         config = Config.carregar()
         config.pasta_entrada = pasta_entrada
@@ -112,8 +123,7 @@ class Instalador:
         dava para escolher onde. Agora a tela sabe pedir o caminho digitado.
         """
         if digitada:
-            self._apontar(Path(digitada).expanduser())
-            return self._resposta_da_pasta()
+            return self._apontar_e_responder(Path(digitada).expanduser())
 
         if _janela is None:
             return self._resposta_da_pasta(seletor=False)
@@ -129,7 +139,14 @@ class Instalador:
 
         if not escolha:
             return self._resposta_da_pasta()   # cancelou; a pasta atual vale
-        self._apontar(Path(escolha[0]))
+        return self._apontar_e_responder(Path(escolha[0]))
+
+    def _apontar_e_responder(self, pasta: Path) -> dict:
+        """Aponta para a pasta, ou devolve o motivo da recusa com a pasta atual."""
+        try:
+            self._apontar(pasta)
+        except PastaRecusada as recusa:
+            return {**self._resposta_da_pasta(), "erro": f"{pasta}: {recusa}"}
         return self._resposta_da_pasta()
 
     def _resposta_da_pasta(self, seletor: bool = True) -> dict:
@@ -196,7 +213,10 @@ class RotasInstalador(Rotas):
         corpo = self._corpo()
 
         if rota == "/api/instalar":
-            self.instalador.instalar(corpo.get("pasta_entrada"))
+            try:
+                self.instalador.instalar(corpo.get("pasta_entrada"))
+            except PastaRecusada as recusa:
+                return self._json({"erro": str(recusa)}, 400)
             return self._json({"iniciado": True})
 
         if rota == "/api/escolher-pasta":
@@ -233,7 +253,7 @@ class RotasInstalador(Rotas):
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    registro.configurar()
 
     instalador = Instalador()
     servidor = ServidorHTTP(
@@ -253,7 +273,7 @@ def main() -> int:
         # tratava apenas `ImportError`, e no Linux sem GTK o pywebview levanta
         # `WebViewException` — que escapava e derrubava o instalador inteiro
         # com um traceback, em vez de abrir a mesma tela no navegador.
-        janela.abrir(
+        aberta = janela.abrir(
             url,
             titulo=f"Instalador do AutoDoc — {__version__}",
             largura=980,
@@ -262,6 +282,9 @@ def main() -> int:
             fundo="#16140f",
             ao_criar=guardar,
         )
+        # No navegador, o app que o "Concluir" sobe roda dentro deste processo.
+        if aberta == "navegador":
+            janela.manter_aberto()
     finally:
         servidor.shutdown()
         servidor.server_close()

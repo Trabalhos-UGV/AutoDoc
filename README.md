@@ -29,10 +29,10 @@ O AutoDoc resolve o problema da organização manual de documentos (contas, nota
 
 - Python 3.10 ou superior. Cuidado: em muitos sistemas o `python3` do sistema
   ainda é 3.9 — o instalador confere e avisa antes de fazer qualquer coisa.
-- Tesseract OCR — **opcional**, necessário apenas para ler imagens e digitalizações. Sem ele o AutoDoc instala e funciona normalmente, apenas sem OCR:
-  - **Windows:** baixar o instalador em https://github.com/UB-Mannheim/tesseract/wiki
-  - **macOS:** `brew install tesseract`
-  - **Linux (Debian/Ubuntu):** `sudo apt install tesseract-ocr`
+- Tesseract OCR, com o pacote de **português** — **opcional**, necessário apenas para ler fotos e digitalizações. Sem ele o AutoDoc instala e funciona normalmente; as fotos esperam em `_Aguardando_OCR/` e são lidas sozinhas quando o OCR for instalado. A lateral da tela diz se o OCR existe e se lê português:
+  - **Windows:** baixar o instalador em https://github.com/UB-Mannheim/tesseract/wiki, marcando o idioma *Portuguese*. Não precisa pôr no PATH: o AutoDoc o procura em `Program Files`.
+  - **macOS:** `brew install tesseract tesseract-lang`
+  - **Linux (Debian/Ubuntu):** `sudo apt install tesseract-ocr tesseract-ocr-por`
   - **Linux (Arch):** `sudo pacman -S tesseract tesseract-data-por`
 
 #### Linux: a janela nativa
@@ -120,6 +120,16 @@ mão, copie `config.example.json` para `config.json` na raiz do projeto:
 }
 ```
 
+Por padrão são aceitos `.pdf`, `.txt`, `.md`, `.csv` e as imagens `.png`,
+`.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp`, `.webp`, `.heic` e `.heif`. As
+`extensoes` do arquivo **somam** a essas, não as substituem — um `config.json`
+gravado quando só havia cinco formatos deixaria a foto do iPhone parada.
+
+A pasta vigiada não pode ser a do próprio AutoDoc, a pasta pessoal inteira nem
+a pasta Documentos inteira: o AutoDoc leva embora tudo o que aparece na pasta
+vigiada, subpastas inclusive. O instalador recusa essas escolhas, e um
+`config.json` antigo que aponte para uma delas faz o programa voltar ao padrão.
+
 Sem `config.json`, o AutoDoc vigia `~/Documentos/AutoDoc/entrada` — fora do
 repositório, como convém a um programa instalado. Omitir `pasta_saida` faz a
 pasta organizada nascer ao lado da vigiada. Defina `pasta_backup` com uma pasta
@@ -153,7 +163,10 @@ Tudo dentro da pasta organizada:
 ```
 organizados/
   conta_luz/2026/03/conta_energia_marco.txt   <- o documento, que é o que importa
+  contrato/sem-data/contrato.pdf               <- classificado, mas sem data no texto
   _Revisar/scan0031.txt                        <- o que não deu para classificar
+  _Aguardando_OCR/foto.jpg                     <- foto lida numa máquina sem OCR
+  _Nao_suportados/planilha.xlsx                <- formato que o AutoDoc não lê
   _Duplicados/                                 <- cópias do que já estava arquivado
   .autodoc/catalogo.jsonl                      <- as fichas; refazíveis a qualquer momento
 ```
@@ -176,7 +189,7 @@ tem confiança suficiente para classificar.
 ### Testes
 
 ```bash
-python -m unittest discover -s testes     # 732 testes, ~22 segundos
+python -m unittest discover -s testes     # 815 testes, ~23 segundos
 python3 ferramentas/cobertura.py          # a cobertura, módulo a módulo
 ```
 
@@ -185,13 +198,14 @@ AutoDoc já pede, e cada um trabalha numa pasta temporária própria.
 
 | Arquivo | O que cobre |
 | --- | --- |
-| `test_classificador.py` | categorias, confiança, limiar, empate e duplo sentido |
-| `test_datas.py` | os três formatos, data inválida e a escolha pelo rótulo |
+| `test_documentos_reais.py` | **o critério de pronto**: 53 documentos como saem de verdade (PDF, OCR com hífen e letra trocada, tabela), cada um conferido na pasta onde foi parar no disco |
+| `test_classificador.py` | categorias, confiança, limiar, empate, termos fracos e normalização de OCR |
+| `test_datas.py` | os formatos, ano plausível, mês de referência, dono da data, tabela e a regra de cada tipo |
 | `test_catalogo.py` | fichas, dedupe por conteúdo, busca por prefixo e sem acento |
 | `test_reconciliacao.py` | a pasta como verdade: catálogo apagado, arquivo apagado, arquivo posto à mão |
 | `test_pipeline.py` | o caminho completo do documento, dedupe, correção manual e documento ilegível |
 | `test_extrator.py` | texto, PDF, OCR de digitalizado e as dependências opcionais ausentes |
-| `test_monitor.py` | arquivos ignorados, espera pela cópia e os eventos da pasta |
+| `test_monitor.py` | arquivos ignorados, espera pela cópia, subpastas, varredura periódica e a espera pelo OCR |
 | `test_servidor.py` | a API das telas, o fluxo de eventos e a porta ocupada |
 | `test_instalacao.py` | as seis etapas e a pasta escolhida chegando ao `config.json` |
 | `test_instalador_servidor.py` | o estado do instalador gráfico e as rotas dele |
@@ -199,15 +213,14 @@ AutoDoc já pede, e cada um trabalha numa pasta temporária própria.
 | `test_janela.py` | a janela nativa e a queda para o navegador |
 | `test_config.py` | padrões, pasta de saída e a gravação da escolha |
 | `test_main.py` | a linha de comando inteira |
+| `test_registro.py` | o registro em arquivo, no lugar de cada sistema |
 
-**A cobertura é de 100% das linhas** (1800 de 1807). As sete que faltam ficam de
+**A cobertura é de 100% das linhas** (4354 de 4361). As sete que faltam ficam de
 fora por motivo, e não por esquecimento:
 
-- os caminhos **só do Windows** (`%APPDATA%`, `venv\Scripts\`) — não dá para
-  exercitá-los no macOS, e fingir que dá seria pior;
-- o **ping de 15 segundos** que mantém o fluxo de eventos vivo — cobri-lo
-  exigiria um teste que espera quinze segundos;
-- os dois `if __name__ == "__main__"`.
+- quatro caminhos **só do Windows** (`%APPDATA%`, `venv\Scripts\`) — não dá
+  para exercitá-los no macOS, e fingir que dá seria pior;
+- os três `if __name__ == "__main__"`.
 
 O medidor é `ferramentas/cobertura.py`, escrito com o `trace` da biblioteca
 padrão. Ele registra o rastreador também para as threads novas
@@ -236,7 +249,7 @@ venv/bin/python ferramentas/ux.py todos      # os cinco, com um resumo no fim
 | `acessibilidade` | Quem usa leitor de tela ou só o teclado | Lê o HTML de cada tela como o leitor de tela leria: idioma, título, botões e links com nome, imagens com `alt`, desenhos (`canvas`) descritos, campos com rótulo |
 | `responsivo` | Telas usáveis em monitor, notebook, tablet e celular | Abre cada tela num Chrome sem janela em várias larguras e mede rolagem lateral, texto menor que 10,5 px e alvo de clique menor que 24×24 px (WCAG 2.5.8), dizendo qual elemento |
 | `tempo` | A sensação de o programa responder na hora | Sobe o AutoDoc numa pasta temporária e cronometra abrir, listar, buscar, filtrar e a tecla do Tetris, contra os limites de Nielsen (0,1 s instantâneo; 1 s sem perder o fio) |
-| `tarefa` | Se dá para fazer o que se veio fazer, sem ajuda | Cumpre três tarefas como uma pessoa: guardar uma conta de luz e achá-la (aparece sozinha, categoria, data, explicação, busca com acento), corrigir um documento ilegível, e jogar Tetris pelo teclado |
+| `tarefa` | Se dá para fazer o que se veio fazer, sem ajuda | Cumpre quatro tarefas como uma pessoa: guardar uma conta de luz e achá-la (aparece sozinha, categoria, data, explicação, busca com acento), corrigir um documento ilegível, largar dez documentos variados de uma vez e conferir que cada um foi para a pasta certa, e jogar Tetris pelo teclado |
 
 `tempo` e `tarefa` sobem o AutoDoc de verdade, por isso pedem o Python do
 `venv`; nenhum dos cinco toca nos seus documentos. `responsivo` precisa de um
@@ -418,21 +431,39 @@ main.py             # interface de linha de comando
 
 ### Como o documento é processado
 
-1. **Detecção** — o `monitor` percebe o arquivo novo e espera a cópia terminar.
+1. **Detecção** — o `monitor` percebe o arquivo novo, inclusive dentro de subpastas, e espera a cópia terminar: tamanho e data de modificação parados e o arquivo abrindo para leitura. O que não ficou pronto a tempo, ou não pôde ser movido, fica na entrada e é tentado de novo pela varredura que roda a cada 30 segundos.
 2. **Deduplicação** — o hash SHA-256 do conteúdo é comparado com o catálogo; se aquele documento já foi arquivado, a cópia vai para `organizados/_Duplicados/` em vez de ser processada de novo.
-3. **Extração** — o texto é lido direto (`.txt`), da camada de texto do PDF, ou via OCR — de imagens e também de PDFs digitalizados, que não têm camada de texto.
-4. **Classificação** — cada categoria pontua conforme as palavras-chave encontradas, e o resultado vira uma **confiança de 0 a 1**. Abaixo de 0,60 o documento não é classificado.
-5. **Data** — procura a data que estiver perto de um rótulo conhecido ("vencimento", "data de emissão"); sem rótulo, usa a primeira data do texto; sem data nenhuma, a modificação do arquivo.
+3. **Extração** — o texto é lido direto (`.txt`), da camada de texto do PDF, ou via OCR. No PDF a decisão é **por página**: a página com pouco texto passa pelo OCR, e um contrato digitado com a página assinada escaneada é lido inteiro. Antes do OCR a foto é endireitada pelo EXIF, passada para tons de cinza e ampliada se for pequena.
+4. **Classificação** — cada categoria pontua conforme as palavras-chave encontradas, e o resultado vira uma **confiança de 0 a 1**. Abaixo de 0,60 o documento não é classificado. Também não é classificado o que só tem termos fracos — "Pix", "CPF", "vencimento" aparecem em quase tudo e, sozinhos, não dizem o tipo.
+5. **Data** — a data que define a pasta depende do tipo de documento (tabela abaixo). Cada data é atribuída ao rótulo mais próximo antes dela, e uma tabela com os rótulos numa linha e as datas na de baixo é pareada pela ordem. Sem data no texto, o documento vai para `sem-data/` — **nunca** para o mês em que o arquivo foi baixado.
 6. **Arquivamento** — o arquivo vai para `organizados/<categoria>/<ano>/<mês>/`, sem sobrescrever homônimos. O que ficou abaixo do limiar vai para `organizados/_Revisar/`.
 7. **Ficha e backup** — metadados, texto e a explicação da classificação viram uma ficha em `organizados/.autodoc/catalogo.jsonl`; se configurado, uma cópia vai para a pasta de backup.
 
-O que não pôde ser lido — PDF corrompido, imagem ilegível, OCR indisponível — também sai da pasta de entrada e vai para `_Revisar/`, com o motivo escrito no trajeto. Um arquivo deixado para trás seria reexaminado a cada abertura e ninguém saberia que ele existe.
+O que não pôde ser lido — PDF corrompido, imagem ilegível — também sai da pasta de entrada e vai para `_Revisar/`, com o motivo escrito no trajeto. Uma foto boa numa máquina **sem OCR** não é ilegível: vai para `_Aguardando_OCR/` e volta ao processamento sozinha quando o OCR existir. Formato que o AutoDoc não lê vai para `_Nao_suportados/`. A tela avisa quantos arquivos estão em cada uma dessas pastas — um arquivo deixado para trás sem aviso é um arquivo que ninguém acha.
+
+| Tipo | Data que define a pasta, em ordem |
+| --- | --- |
+| Contas mensais (luz, água, gás, telefone e internet, fatura do cartão) | mês de **referência** → leitura atual → fechamento → vencimento → emissão |
+| Holerite | **competência** → pagamento |
+| Nota fiscal | **emissão** |
+| Boleto, impostos | **vencimento** |
+| Comprovante | data da operação ou do pagamento |
+| Contrato | assinatura, ou a data por extenso do fecho |
+| Documento pessoal | **expedição** — nunca nascimento nem validade |
+
+A conta de março vai para `2026/03` mesmo vencendo em abril, porque é como as
+pessoas procuram ("a conta de março"). O ano de dois dígitos vira 20xx só até o
+ano que vem; acima disso é 19xx ("15/08/98" é 1998, não 2098).
 
 ### Categorias reconhecidas
 
-`conta_luz`, `conta_agua`, `nota_fiscal`, `boleto`, `contrato`, `comprovante` e
+`conta_luz`, `conta_agua`, `conta_gas`, `telefone_internet`, `fatura_cartao`,
+`holerite`, `impostos`, `nota_fiscal`, `boleto`, `contrato`, `comprovante` e
 `documento_pessoal`. O que não atinge o limiar de confiança vira
 `nao_classificado` e vai para revisão manual.
+
+Fatura do cartão, imposto e conta de consumo também trazem linha digitável;
+quando um desses tipos tem um termo forte, ele ganha de `boleto`.
 
 As regras ficam em [autodoc/classificador.py](autodoc/classificador.py) e são
 escritas com os termos que documentos reais trazem, e não com os que descrevem a
@@ -476,6 +507,15 @@ Além do escopo original da proposta, esta base inclui:
 - **Máscara de emoji sobre o rosto**, como reserva para máquinas sem 3D, cobrindo todo rosto que aparecer na câmera.
 - **Testes de usabilidade automáticos** (`ferramentas/ux.py`): contraste, acessibilidade, telas em vários tamanhos, tempo de resposta e tarefas de ponta a ponta, cada um com parecer no terminal.
 - **Permissão de câmera do próprio AutoDoc no macOS**, e o app rodando nativo no chip Apple em vez de emulado.
+- **Cinco categorias além das da proposta**: holerite, fatura do cartão, impostos (IPTU, IPVA, DAS, DARF), telefone e internet, e conta de gás.
+- **Data da pasta pelo tipo de documento**, com mês de referência para as contas mensais, ano de dois dígitos plausível, leitura de tabela e tolerância às trocas do OCR (`O`↔`0`, `l`↔`1`).
+- **Leitura tolerante ao OCR** no classificador: hífen de fim de linha, hífen invisível e letras trocadas ("CEMlG" é CEMIG).
+- **Corpus de 53 documentos reais** como critério de pronto, cada um conferido na pasta onde foi parar no disco.
+- **O arquivo sempre chega**: espera pela cópia terminar sem processar pela metade, nova tentativa para o arquivo travado e varredura da entrada a cada 30 segundos.
+- **Subpastas e mais formatos**: `.tif`, `.webp` e `.heic` do iPhone; o que não for lido vai para `_Nao_suportados/` em vez de ficar parado.
+- **Diagnóstico do OCR na tela**, com o comando de instalação de cada sistema, e fotos esperando o OCR em vez de irem para a revisão.
+- **OCR por página**, com a foto endireitada pelo EXIF e ampliada antes de ler.
+- **Registro em arquivo por usuário** (`~/Library/Logs/AutoDoc`, `%LOCALAPPDATA%\AutoDoc\logs`, `~/.local/state/autodoc`), para quem abre pelo atalho e não tem terminal.
 
 ## O que ainda não está pronto
 
@@ -494,9 +534,14 @@ continuá-lo:
   repositório, com `python3 instalar.py`. Falta empacotar isso num arquivo que a
   landing possa entregar — a página detecta que o pacote não existe e avisa, em
   vez de oferecer um link quebrado.
-- **Calibragem das regras.** Estão ajustadas contra os documentos de `exemplos/`
-  e ainda não foram testadas com contas e notas reais, que variam bastante de
-  emissor para emissor.
+- **Calibragem das regras.** Estão ajustadas contra um corpus de 53 textos
+  escritos como os documentos reais saem (`testes/test_documentos_reais.py`),
+  e não contra arquivos de verdade de cada emissor. Cada erro achado no uso real
+  deve virar um caso a mais ali.
+- **OCR de verdade.** O caminho do OCR (por página, EXIF, ampliação, espera em
+  `_Aguardando_OCR/`) é testado com o Tesseract dublado: a máquina de
+  desenvolvimento não tem o Tesseract instalado. Falta passar uma foto de conta
+  e um PDF escaneado de verdade com ele instalado.
 - **Windows e Linux.** O código é escrito para os três sistemas e os testes
   cobrem as três variações de atalho e a instalação sem parte gráfica, mas a
   execução de verdade só foi feita no macOS. O caminho do Linux foi corrigido a
@@ -507,10 +552,6 @@ continuá-lo:
   sistema de quem está trabalhando. O que existe hoje é a checagem de sintaxe
   pelo JavaScriptCore do próprio macOS e a conferência de que todo seletor usado
   no JavaScript existe no HTML — que foi o que pegou erro de verdade.
-- **Hífen invisível.** Um PDF com texto justificado às vezes traz `U+00AD` no
-  meio da palavra, e o `normalizar` não o remove: "con­sumo" não casa com
-  "consumo". Aparece pouco e o conserto mexe na classificação, então fica
-  registrado em vez de mudado às pressas.
 - **Escala do catálogo.** Ele é lido inteiro para a memória ao abrir o programa,
   o que é imediato para as centenas de documentos que uma pessoa acumula. Para
   dezenas de milhares o texto completo na memória passaria a incomodar, e aí
@@ -521,6 +562,7 @@ continuá-lo:
   sistema simulado, não numa máquina de verdade. Os limiares da pinça
   (`PINCA_FECHA`, `PINCA_ABRE`) e a área da câmera (`AREA`) são estimativas a
   calibrar no quadro de desenho, que mostra as medidas ao vivo.
-- **Data por rótulo em texto muito corrido.** A distância entre o rótulo e a data
-  é medida depois de juntar os espaços, então um rótulo seguido de muitas
-  palavras ainda pode alcançar uma data que não é dele.
+- **Data por rótulo em texto muito corrido.** Uma data pertence ao rótulo mais
+  próximo antes dela, até 40 caracteres e sem outra data no meio. Num texto em
+  que o rótulo e a data ficam longe um do outro, a data fica sem dono e vale a
+  primeira data solta do documento.

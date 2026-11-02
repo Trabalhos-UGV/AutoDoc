@@ -122,6 +122,22 @@ class TestEstado(BaseServidor):
     def test_nao_anuncia_banco_nem_fts5(self):
         self.assertEqual(self.get("/api/estado")["busca"], "índice interno")
 
+    def test_diz_como_esta_o_ocr_desta_maquina(self):
+        ocr = self.get("/api/estado")["ocr"]
+        for campo in ("disponivel", "portugues", "resumo", "como_instalar"):
+            self.assertIn(campo, ocr)
+
+    def test_conta_o_que_saiu_da_entrada_sem_virar_documento(self):
+        pendencias = self.get("/api/documentos")["pendencias"]
+        self.assertEqual(pendencias, {"aguardando_ocr": 0, "nao_suportados": 0})
+
+        parados = self.config.pasta_saida / "_Aguardando_OCR"
+        parados.mkdir()
+        self.addCleanup(shutil.rmtree, parados)
+        (parados / "foto.jpg").write_bytes(b"x")
+        (parados / ".DS_Store").write_bytes(b"x")
+        self.assertEqual(self.get("/api/documentos")["pendencias"]["aguardando_ocr"], 1)
+
     def test_oferece_as_categorias_para_correcao_manual(self):
         rotulos = [c["rotulo"] for c in self.get("/api/estado")["categorias_possiveis"]]
         self.assertIn("Contrato", rotulos)

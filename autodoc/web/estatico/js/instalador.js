@@ -9,7 +9,7 @@ import { ETAPAS, PASTA_MONITORADA } from './dados-demo.js';
 import { detectarModo, esperar, estadoDoServidor } from './modo.js';
 
 // Mantenha em passo com __version__ em autodoc/__init__.py.
-const VERSAO = '0.5.2';
+const VERSAO = '0.6.0';
 
 const MARCAS = { pronto: '✓', agora: '•', espera: '' };
 const LINHAS_VISIVEIS = 6;
@@ -229,7 +229,17 @@ function motorReal() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pasta_entrada: estado.pasta }),
-  }).catch(() => {});
+  })
+    .then((resposta) => resposta.json())
+    .then((resposta) => {
+      // Pasta recusada (a do próprio programa, a pessoal inteira): a
+      // instalação nem começa, e a tela precisa dizer por quê.
+      if (!resposta.erro) return;
+      el.fase.textContent = 'Escolha outra pasta';
+      el.etapaAtual.textContent = resposta.erro;
+      fonte.close();
+    })
+    .catch(() => {});
 }
 
 function iniciarMotor() {
@@ -298,6 +308,11 @@ el.alterar.addEventListener('click', async () => {
     }
 
     const { caminho, pasta_saida: pastaSaida } = dados;
+    if (dados.erro) {
+      el.fase.textContent = 'Pasta recusada';
+      el.etapaAtual.textContent = dados.erro;
+      return;
+    }
     if (!caminho) return;
 
     estado.pasta = caminho;

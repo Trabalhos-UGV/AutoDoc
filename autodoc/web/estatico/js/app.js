@@ -35,6 +35,7 @@ const el = {
   indice: document.querySelector('[data-indice]'),
   dados: document.querySelector('[data-dados]'),
   backup: document.querySelector('[data-backup]'),
+  ocr: document.querySelector('[data-ocr]'),
   detArquivo: document.querySelector('[data-det-arquivo]'),
   detEtiqueta: document.querySelector('[data-det-etiqueta]'),
   detConfianca: document.querySelector('[data-det-confianca]'),
@@ -69,6 +70,23 @@ let modo = 'demo';
 function avisar(mensagem) {
   el.aviso.textContent = mensagem ?? '';
   el.aviso.hidden = !mensagem;
+}
+
+/**
+ * O que saiu da entrada sem virar documento. Sem isto, uma foto esperando o
+ * OCR ou um .docx que o AutoDoc não lê simplesmente sumiam da vista de quem os
+ * largou na pasta.
+ */
+function avisoDePendencias(pendencias = {}) {
+  const partes = [];
+  const { aguardando_ocr: semOcr = 0, nao_suportados: naoLidos = 0 } = pendencias;
+  if (semOcr) {
+    const ocr = estadoDoServidor()?.ocr;
+    partes.push(`${semOcr} foto(s) ou scan(s) esperando o OCR em _Aguardando_OCR`
+      + (ocr?.como_instalar ? ` — para ler: ${ocr.como_instalar}` : ''));
+  }
+  if (naoLidos) partes.push(`${naoLidos} arquivo(s) em formato que o AutoDoc não lê, em _Nao_suportados`);
+  return partes.length ? `${partes.join('. ')}.` : null;
 }
 
 /* ------------------------------------------------------------ filtro */
@@ -327,7 +345,7 @@ async function carregar() {
       // O servidor manda só o que passou no filtro; o detalhe precisa achar
       // o documento selecionado nessa mesma lista.
       estado.documentos = dados.todos ?? estado.visiveis;
-      avisar(null);
+      avisar(avisoDePendencias(dados.pendencias));
     } catch {
       // Falha de verdade: dizer isso, em vez de deixar a tela parecendo vazia.
       estado.visiveis = [];
@@ -467,6 +485,14 @@ if (modo === 'real') {
 
   el.backup.textContent = servidor.backup ? 'sincronizado' : 'não configurado';
   el.backup.classList.toggle('lateral__ok', Boolean(servidor.backup));
+
+  // O OCR desta máquina, com o comando que resolve quando falta algo.
+  if (servidor.ocr) {
+    const { disponivel, portugues, resumo, como_instalar: comando } = servidor.ocr;
+    el.ocr.textContent = !disponivel ? 'não instalado' : portugues ? 'português' : 'só inglês';
+    el.ocr.classList.toggle('lateral__ok', Boolean(portugues));
+    el.ocr.title = comando ? `${resumo} — ${comando}` : resumo;
+  }
 }
 
 if (modo === 'demo') {

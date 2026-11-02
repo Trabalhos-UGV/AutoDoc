@@ -8,7 +8,8 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-from autodoc.config import Config
+from autodoc import config as modulo_config
+from autodoc.config import RAIZ, Config, problema_da_pasta
 
 
 class BaseConfig(unittest.TestCase):
@@ -82,8 +83,49 @@ class TestLeitura(BaseConfig):
                          Config().pasta_entrada)
 
     def test_extensoes_viram_minusculas(self):
-        config = Config.carregar(self.escrever({"extensoes": [".PDF", ".Txt"]}))
-        self.assertEqual(config.extensoes, (".pdf", ".txt"))
+        config = Config.carregar(self.escrever({"extensoes": [".PDF", ".DOCX"]}))
+        self.assertIn(".docx", config.extensoes)
+        self.assertEqual(config.extensoes.count(".pdf"), 1)
+
+    def test_config_antigo_com_cinco_formatos_ganha_os_novos(self):
+        """Gravado quando so havia cinco, nao pode deixar a foto .heic parada."""
+        config = Config.carregar(self.escrever({
+            "extensoes": [".pdf", ".png", ".jpg", ".jpeg", ".txt"]}))
+        for nova in (".heic", ".tiff", ".webp"):
+            self.assertIn(nova, config.extensoes)
+
+
+class TestPastaQueNaoPodeSerVigiada(BaseConfig):
+    """O AutoDoc leva embora tudo o que aparece na pasta vigiada."""
+
+    def test_pasta_do_programa_e_recusada(self):
+        self.assertIn("próprio AutoDoc", problema_da_pasta(RAIZ / "exemplos"))
+        self.assertIn("próprio AutoDoc", problema_da_pasta(RAIZ))
+
+    def test_casa_e_o_que_esta_acima_dela_sao_recusados(self):
+        self.assertIn("pessoal", problema_da_pasta(Path.home()))
+        self.assertIn("pessoal", problema_da_pasta(Path.home().parent))
+
+    def test_documentos_inteira_e_recusada_mas_subpasta_nao(self):
+        documentos = modulo_config.pasta_documentos()
+        with mock.patch.object(modulo_config, "pasta_documentos",
+                               return_value=self.pasta / "Documentos"):
+            self.assertIn("Documentos", problema_da_pasta(self.pasta / "Documentos"))
+            self.assertIsNone(problema_da_pasta(self.pasta / "Documentos" / "Contas"))
+        self.assertIsNone(problema_da_pasta(documentos / "AutoDoc" / "entrada"))
+
+    def test_config_gravado_com_a_pasta_do_programa_volta_ao_padrao(self):
+        """O defeito desta maquina: o app esvaziava `exemplos/` a cada abertura."""
+        arquivo = self.escrever({
+            "pasta_entrada": str(RAIZ / "exemplos"),
+            "pasta_saida": str(RAIZ / "organizados")})
+        with self.assertLogs("autodoc.config", "WARNING"):
+            config = Config.carregar(arquivo)
+
+        self.assertEqual(config.pasta_entrada, Config().pasta_entrada)
+        self.assertEqual(config.pasta_saida, config.saida_ao_lado())
+        # o arquivo nao e reescrito: quem decide a pasta e o instalador
+        self.assertIn("exemplos", arquivo.read_text(encoding="utf-8"))
 
 
 class TestGravacao(BaseConfig):

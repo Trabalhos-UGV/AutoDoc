@@ -268,6 +268,17 @@ class TestQuedaParaONavegador(unittest.TestCase):
         self.assertIn("nenhum motor de webview", saida)
 
 
+class TestManterAberto(unittest.TestCase):
+    def test_segura_ate_o_ctrl_c(self):
+        with mock.patch.object(janela.time, "sleep",
+                               side_effect=[None, None, KeyboardInterrupt]) as dormiu, \
+             mock.patch("builtins.print") as escreveu:
+            janela.manter_aberto()
+
+        self.assertEqual(dormiu.call_count, 3)
+        self.assertIn("Ctrl+C", escreveu.call_args.args[0])
+
+
 class TestJanelaNativa(unittest.TestCase):
     def test_entrega_a_janela_criada_a_quem_pediu(self):
         """O instalador precisa da referência para abrir o seletor de pastas."""

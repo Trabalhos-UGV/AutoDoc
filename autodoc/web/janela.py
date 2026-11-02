@@ -26,6 +26,7 @@ import logging
 import os
 import shutil
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -181,6 +182,23 @@ def _ha_motor_grafico(webview) -> str | None:
         except Exception as erro:
             return f"{type(erro).__name__}: {erro}"
     return None
+
+
+def manter_aberto() -> None:
+    """Segura o processo quando a tela foi parar no navegador.
+
+    Com a janela nativa, fechar a janela e o que encerra o programa. No
+    navegador nao ha janela para esperar: `abrir()` voltava na hora, quem
+    chamou desligava o servidor, e o navegador abria uma pagina que ja nao
+    respondia — e nada mais era organizado. Agora quem segura e o terminal.
+    """
+    print("\n  O AutoDoc continua organizando enquanto este terminal estiver aberto."
+          "\n  Ctrl+C encerra.\n")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
 
 
 def _cair_no_navegador(url: str, motivo: str) -> str:
