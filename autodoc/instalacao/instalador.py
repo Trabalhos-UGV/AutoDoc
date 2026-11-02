@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .. import exemplos
 from ..catalogo import PASTA_CATALOGO, Catalogo
 from ..config import CAMINHO_CONFIG, Config
 from ..extrator import caminho_do_tesseract, como_instalar_ocr, diagnostico_ocr
@@ -217,6 +218,14 @@ def definir_pasta(estado: dict, pasta_entrada: Path) -> Iterator[str]:
 
     config.salvar(CAMINHO_CONFIG)
     yield f"configuração gravada em {CAMINHO_CONFIG.name}"
+
+    # Para o AutoDoc abrir ja mostrando o que faz. So na primeira vez: numa
+    # reinstalacao os exemplos ja foram organizados e voltariam como copia.
+    copiados = exemplos.copiar_na_instalacao(pasta_entrada, config.pasta_saida)
+    if copiados is None:
+        yield "exemplos já copiados numa instalação anterior"
+    else:
+        yield f"{len(copiados)} exemplo(s) copiado(s) para a pasta monitorada"
 
     resultado = atalho.criar()
     yield resultado.detalhe if resultado.criado else f"atalho não criado: {resultado.detalhe}"
